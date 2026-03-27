@@ -8,9 +8,15 @@ interface AuthState {
   refreshToken: string | null
   user: UserOut | null
   isOtpPending: boolean
+  // orgId override for super_admin org-switching; null means use user.org_id
+  orgId: string | null
+
+  // Derived helpers (computed from user + orgId)
+  role: UserOut['role'] | null
 
   // Actions
   setTokens: (accessToken: string, refreshToken: string) => void
+  setOrgContext: (orgId: string) => void
   login: (email: string, password: string) => Promise<void>
   loginWithGoogle: (idToken: string) => Promise<void>
   loginWithApple: (identityToken: string, authCode: string) => Promise<void>
@@ -28,9 +34,15 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       user: null,
       isOtpPending: false,
+      orgId: null,
+      role: null,
 
       setTokens: (accessToken, refreshToken) => {
         set({ accessToken, refreshToken })
+      },
+
+      setOrgContext: (orgId) => {
+        set({ orgId })
       },
 
       login: async (email, password) => {
@@ -116,6 +128,8 @@ export const useAuthStore = create<AuthState>()(
           refreshToken: null,
           user: null,
           isOtpPending: false,
+          orgId: null,
+          role: null,
         })
       },
 
@@ -134,7 +148,12 @@ export const useAuthStore = create<AuthState>()(
       fetchUser: async () => {
         try {
           const { data } = await api.get<UserOut>('/auth/me')
-          set({ user: data })
+          set((state) => ({
+            user: data,
+            role: data.role,
+            // Only override orgId if not already set by setOrgContext
+            orgId: state.orgId ?? data.org_id,
+          }))
         } catch (error) {
           console.error('Failed to fetch user:', getApiError(error))
         }
@@ -147,6 +166,8 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: state.refreshToken,
         user: state.user,
         isOtpPending: state.isOtpPending,
+        orgId: state.orgId,
+        role: state.role,
       }),
       onRehydrateStorage: () => (state) => {
         // Expose the store on window for the axios interceptor (avoids circular import)

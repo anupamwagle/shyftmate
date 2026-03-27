@@ -16,9 +16,29 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup validation
+    s = get_settings()
+    required_for_prod = [
+        ("DATABASE_URL", s.DATABASE_URL),
+        ("JWT_SECRET", s.JWT_SECRET),
+        ("AWS_ACCESS_KEY_ID", s.AWS_ACCESS_KEY_ID),
+        ("AWS_SECRET_ACCESS_KEY", s.AWS_SECRET_ACCESS_KEY),
+        ("SES_FROM_EMAIL", s.SES_FROM_EMAIL),
+    ]
+    missing = [name for name, val in required_for_prod if not val]
+    if missing:
+        import sys
+        print(f"[STARTUP ERROR] Missing required env vars: {', '.join(missing)}", file=sys.stderr)
+        if not s.is_dev:
+            raise RuntimeError(f"Missing required env vars for prod: {', '.join(missing)}")
+
+    if s.LLM_PROVIDER == "anthropic" and not s.ANTHROPIC_API_KEY:
+        import sys
+        print("[STARTUP WARNING] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set", file=sys.stderr)
+
+    print(f"[STARTUP] Gator API starting — ENV={s.ENV}, LLM={s.LLM_PROVIDER}")
     yield
-    # Shutdown
+    print("[SHUTDOWN] Gator API stopping")
 
 
 app = FastAPI(

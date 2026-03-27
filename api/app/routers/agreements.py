@@ -657,3 +657,26 @@ async def delete_paycode(
     if kp is None:
         raise HTTPException(status_code=404, detail={"error_code": "PAYCODE_NOT_FOUND", "message": "Paycode not found.", "detail": None})
     await db.delete(kp)
+
+
+# ── Recurring Allowances ─────────────────────────────────────
+
+@router.put("/agreements/{agreement_id}/recurring-allowances", response_model=dict)
+async def upsert_recurring_allowances(
+    agreement_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("admin")),
+):
+    result = await db.execute(select(Agreement).where(Agreement.id == agreement_id))
+    agreement = result.scalar_one_or_none()
+    if not agreement:
+        raise HTTPException(404, "Agreement not found")
+    # recurring_allowances stored in KronosConfig
+    kc_result = await db.execute(select(KronosConfig).where(KronosConfig.agreement_id == agreement_id))
+    kc = kc_result.scalar_one_or_none()
+    if not kc:
+        raise HTTPException(404, "Kronos config not found — create it first")
+    kc.recurring_allowances = body.get("recurring_allowances", kc.recurring_allowances)
+    await db.commit()
+    return {"recurring_allowances": kc.recurring_allowances}

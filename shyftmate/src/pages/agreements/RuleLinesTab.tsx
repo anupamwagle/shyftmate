@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Pencil, Trash2, GripVertical, ChevronRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -161,6 +161,22 @@ export function RuleLinesTab({ agreementId, employeeTypes }: Props) {
     onError: (e) => showApiError(e, 'Failed to reorder'),
   })
 
+  const reorderDirectionMutation = useMutation({
+    mutationFn: ({ id, direction }: { id: string; direction: 'up' | 'down' }) => {
+      const idx = lines.findIndex((r) => r.id === id)
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (targetIdx < 0 || targetIdx >= lines.length) return Promise.resolve()
+      const currentOrder = lines[idx].sort_order ?? idx
+      const targetOrder = lines[targetIdx].sort_order ?? targetIdx
+      return Promise.all([
+        api.post(`/rule-lines/${id}/reorder`, { sort_order: targetOrder }),
+        api.post(`/rule-lines/${lines[targetIdx].id}/reorder`, { sort_order: currentOrder }),
+      ])
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rule-lines', agreementId] }),
+    onError: (e) => showApiError(e, 'Failed to reorder'),
+  })
+
   function openCreate(parentId?: string) {
     setEditTarget(null)
     setParentForNew(parentId ?? null)
@@ -286,14 +302,17 @@ export function RuleLinesTab({ agreementId, employeeTypes }: Props) {
               strategy={verticalListSortingStrategy}
             >
               <div className="divide-y divide-neutral-100 overflow-x-auto">
-                {tree.map((rule) => (
+                {tree.map((rule, idx) => (
                   <RuleRow
                     key={rule.id}
                     rule={rule}
                     depth={0}
+                    isFirst={idx === 0}
+                    isLast={idx === tree.length - 1}
                     onEdit={openEdit}
                     onDelete={(id) => setDeleteTarget(id)}
                     onAddSubRule={(parentId) => openCreate(parentId)}
+                    onReorder={(id, direction) => reorderDirectionMutation.mutate({ id, direction })}
                   />
                 ))}
               </div>
@@ -387,15 +406,21 @@ export function RuleLinesTab({ agreementId, employeeTypes }: Props) {
 function RuleRow({
   rule,
   depth,
+  isFirst,
+  isLast,
   onEdit,
   onDelete,
   onAddSubRule,
+  onReorder,
 }: {
   rule: RuleLine
   depth: number
+  isFirst?: boolean
+  isLast?: boolean
   onEdit: (r: RuleLine) => void
   onDelete: (id: string) => void
   onAddSubRule: (parentId: string) => void
+  onReorder: (id: string, direction: 'up' | 'down') => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: rule.id,
@@ -433,6 +458,30 @@ function RuleRow({
           </span>
           {/* Row actions */}
           <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 ml-auto shrink-0">
+            {depth === 0 && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => onReorder(rule.id, 'up')}
+                  disabled={isFirst}
+                  title="Move up"
+                >
+                  <ChevronUp className="w-3 h-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => onReorder(rule.id, 'down')}
+                  disabled={isLast}
+                  title="Move down"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                </Button>
+              </>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -485,6 +534,7 @@ function RuleRow({
           onEdit={onEdit}
           onDelete={onDelete}
           onAddSubRule={onAddSubRule}
+          onReorder={onReorder}
         />
       ))}
     </>

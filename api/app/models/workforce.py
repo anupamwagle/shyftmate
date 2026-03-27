@@ -4,11 +4,12 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, Numeric,
+    ARRAY, Boolean, Date, DateTime, ForeignKey, Integer, Numeric,
     String, Text, Time,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKey
@@ -255,3 +256,52 @@ class PayrollExportJob(Base, UUIDPrimaryKey):
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ── Shift Swaps ──────────────────────────────────────────────
+
+class ShiftSwap(Base, UUIDPrimaryKey, TimestampMixin):
+    __tablename__ = "shift_swaps"
+    shift_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="CASCADE"), nullable=False, index=True)
+    requesting_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    covering_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")  # pending|approved|rejected
+    manager_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MessageGroup(Base, UUIDPrimaryKey, TimestampMixin):
+    __tablename__ = "message_groups"
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    member_ids: Mapped[list] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False, server_default="{}")
+
+
+class EmployeeSkill(Base, UUIDPrimaryKey):
+    __tablename__ = "employee_skills"
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    certified_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    expires_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class EmployeeDocument(Base, UUIDPrimaryKey):
+    __tablename__ = "employee_documents"
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    expires_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ShiftTemplate(Base, UUIDPrimaryKey, TimestampMixin):
+    __tablename__ = "shift_templates"
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organisations.id", ondelete="CASCADE"), nullable=False, index=True)
+    location_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    start_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    end_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    role_required: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    min_staff: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

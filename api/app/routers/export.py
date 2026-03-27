@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,6 +101,37 @@ async def trigger_export(
     await _run_export_job(job.id, body.platform, body.agreement_id, body.timesheet_ids, db)
 
     return ExportJobOut.model_validate(job)
+
+
+@router.get("/jobs", response_model=list[dict])
+async def list_export_jobs(
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        from app.models.workforce import PayrollExportJob
+    except ImportError:
+        raise HTTPException(status_code=500, detail={"error_code": "MODEL_NOT_FOUND", "message": "PayrollExportJob model not available.", "detail": None})
+
+    result = await db.execute(
+        select(PayrollExportJob)
+        .where(PayrollExportJob.org_id == current_user.org_id)
+        .order_by(PayrollExportJob.created_at.desc())
+        .limit(limit)
+    )
+    jobs = result.scalars().all()
+    return [
+        {
+            "id": str(j.id),
+            "platform": j.platform,
+            "status": j.status,
+            "result_payload": j.result_payload,
+            "created_at": j.created_at.isoformat(),
+            "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+        }
+        for j in jobs
+    ]
 
 
 @router.get("/jobs/{job_id}", response_model=ExportJobOut, summary="Get export job status")

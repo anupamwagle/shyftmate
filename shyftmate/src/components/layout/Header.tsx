@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/hooks/useAuth'
 import { initials } from '@/lib/utils'
+import { OrgSwitcher } from '../OrgSwitcher'
 
 const BREADCRUMB_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -78,6 +79,7 @@ export function Header() {
 
       {/* Right actions */}
       <div className="flex items-center gap-2">
+        <OrgSwitcher />
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="w-4 h-4" />
           {/* Notification dot */}

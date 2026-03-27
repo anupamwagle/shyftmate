@@ -5,11 +5,12 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_roles
+from app.main import limiter
 from app.models.user import User
 from app.models.workforce import (
     Announcement,
@@ -20,8 +21,10 @@ from app.models.workforce import (
     LeaveRequest,
     LeaveType,
     Message,
+    MessageGroup,
     Roster,
     Shift,
+    ShiftSwap,
     Timesheet,
     TimesheetEntry,
 )
@@ -64,6 +67,7 @@ def _ip(request: Request) -> Optional[str]:
 # ── Clock Events ─────────────────────────────────────────────
 
 @router.post("/clock", response_model=ClockEventOut, status_code=status.HTTP_201_CREATED, summary="Record clock event")
+@limiter.limit("2/minute")
 async def record_clock_event(
     body: ClockEventCreate,
     request: Request,
@@ -504,6 +508,146 @@ async def send_message(
     return message
 
 
+# ── Shift Swaps ──────────────────────────────────────────────
+
+@router.get("/shift-swaps", response_model=list[dict])
+async def list_shift_swaps(
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    q = select(ShiftSwap).where(
+        or_(
+            ShiftSwap.requesting_user_id == current_user.id,
+            ShiftSwap.covering_user_id == current_user.id,
+        )
+    )
+    if status:
+        q = q.where(ShiftSwap.status == status)
+    result = await db.execute(q.order_by(ShiftSwap.created_at.desc()))
+    swaps = result.scalars().all()
+    return [{"id": str(s.id), "shift_id": str(s.shift_id), "status": s.status,
+             "requesting_user_id": str(s.requesting_user_id),
+             "covering_user_id": str(s.covering_user_id) if s.covering_user_id else None,
+             "created_at": s.created_at.isoformat()} for s in swaps]
+
+@router.post("/shift-swaps", status_code=201, response_model=dict)
+async def create_shift_swap(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    swap = ShiftSwap(
+        shift_id=uuid.UUID(body["shift_id"]),
+        requesting_user_id=current_user.id,
+        covering_user_id=uuid.UUID(body["covering_user_id"]) if body.get("covering_user_id") else None,
+        status="pending",
+    )
+    db.add(swap)
+    await db.commit()
+    await db.refresh(swap)
+    return {"id": str(swap.id), "status": swap.status}
+
+@router.post("/shift-swaps/{swap_id}/approve", response_model=dict)
+async def approve_shift_swap(
+    swap_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("manager")),
+):
+    result = await db.execute(select(ShiftSwap).where(ShiftSwap.id == swap_id))
+    swap = result.scalar_one_or_none()
+    if not swap:
+        raise HTTPException(404, "Shift swap not found")
+    swap.status = "approved"
+    swap.manager_id = current_user.id
+    swap.resolved_at = datetime.now(timezone.utc)
+    # Reassign the shift
+    shift_result = await db.execute(select(Shift).where(Shift.id == swap.shift_id))
+    shift = shift_result.scalar_one_or_none()
+    if shift and swap.covering_user_id:
+        shift.assigned_user_id = swap.covering_user_id
+    await db.commit()
+    return {"id": str(swap.id), "status": swap.status}
+
+@router.post("/shift-swaps/{swap_id}/reject", response_model=dict)
+async def reject_shift_swap(
+    swap_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("manager")),
+):
+    result = await db.execute(select(ShiftSwap).where(ShiftSwap.id == swap_id))
+    swap = result.scalar_one_or_none()
+    if not swap:
+        raise HTTPException(404, "Shift swap not found")
+    swap.status = "rejected"
+    swap.manager_id = current_user.id
+    swap.resolved_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"id": str(swap.id), "status": swap.status}
+
+
+# ── Message Groups ────────────────────────────────────────────
+
+@router.get("/message-groups", response_model=list[dict])
+async def list_message_groups(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(MessageGroup).where(MessageGroup.org_id == current_user.org_id)
+        .order_by(MessageGroup.name)
+    )
+    groups = result.scalars().all()
+    return [{"id": str(g.id), "name": g.name, "member_ids": [str(m) for m in (g.member_ids or [])], "created_at": g.created_at.isoformat()} for g in groups]
+
+@router.post("/message-groups", status_code=201, response_model=dict)
+async def create_message_group(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("manager")),
+):
+    group = MessageGroup(
+        org_id=current_user.org_id,
+        name=body["name"],
+        member_ids=[uuid.UUID(m) for m in body.get("member_ids", [])],
+    )
+    db.add(group)
+    await db.commit()
+    await db.refresh(group)
+    return {"id": str(group.id), "name": group.name}
+
+@router.patch("/message-groups/{group_id}", response_model=dict)
+async def update_message_group(
+    group_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("manager")),
+):
+    result = await db.execute(select(MessageGroup).where(MessageGroup.id == group_id, MessageGroup.org_id == current_user.org_id))
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(404, "Message group not found")
+    if "name" in body:
+        group.name = body["name"]
+    if "member_ids" in body:
+        group.member_ids = [uuid.UUID(m) for m in body["member_ids"]]
+    await db.commit()
+    return {"id": str(group.id), "name": group.name}
+
+@router.delete("/message-groups/{group_id}", status_code=204)
+async def delete_message_group(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("manager")),
+):
+    result = await db.execute(select(MessageGroup).where(MessageGroup.id == group_id, MessageGroup.org_id == current_user.org_id))
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(404, "Message group not found")
+    await db.delete(group)
+    await db.commit()
+
+
 # ── Reports ──────────────────────────────────────────────────
 
 @router.get("/reports/labour-cost", summary="Labour cost report")
@@ -605,3 +749,71 @@ async def report_award_compliance(
         "violations": violations,
         "compliant": len(violations) == 0,
     }
+
+
+# ── Live Clock-In ─────────────────────────────────────────────
+
+@router.get("/clock/live", response_model=list[dict], summary="List currently clocked-in users")
+async def get_live_clock_ins(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_roles("manager")),
+):
+    """Return all users currently clocked in (clock_in event today with no subsequent clock_out)."""
+    from sqlalchemy import func as sqlfunc
+
+    today = datetime.now(timezone.utc).date()
+
+    # All clock_in events today for users in this org (join through User for org filtering)
+    clock_in_result = await db.execute(
+        select(ClockEvent)
+        .join(User, ClockEvent.user_id == User.id)
+        .where(
+            User.org_id == current_user.org_id,
+            ClockEvent.event_type == "clock_in",
+            sqlfunc.date(ClockEvent.recorded_at) == today,
+        )
+        .order_by(ClockEvent.recorded_at.desc())
+    )
+    clock_ins = clock_in_result.scalars().all()
+
+    # Users who have a clock_out today (exclude them)
+    clock_out_result = await db.execute(
+        select(ClockEvent.user_id)
+        .join(User, ClockEvent.user_id == User.id)
+        .where(
+            User.org_id == current_user.org_id,
+            ClockEvent.event_type == "clock_out",
+            sqlfunc.date(ClockEvent.recorded_at) == today,
+        )
+    )
+    clocked_out_user_ids = {row[0] for row in clock_out_result.all()}
+
+    active = [ci for ci in clock_ins if ci.user_id not in clocked_out_user_ids]
+
+    # Deduplicate by user_id — keep only the latest clock_in per user
+    seen: set[uuid.UUID] = set()
+    unique_active = []
+    for ci in active:
+        if ci.user_id not in seen:
+            seen.add(ci.user_id)
+            unique_active.append(ci)
+
+    results = []
+    for ci in unique_active:
+        user_result = await db.execute(select(User).where(User.id == ci.user_id))
+        user = user_result.scalar_one_or_none()
+        location: Optional[Location] = None
+        if ci.location_id:
+            loc_result = await db.execute(select(Location).where(Location.id == ci.location_id))
+            location = loc_result.scalar_one_or_none()
+        if user:
+            results.append({
+                "user_id": str(user.id),
+                "user_name": f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email,
+                "avatar_url": getattr(user, "avatar_url", None),
+                "location_id": str(ci.location_id) if ci.location_id else None,
+                "location_name": location.name if location else "Unknown",
+                "clocked_in_at": ci.recorded_at.isoformat(),
+                "shift_end": None,
+            })
+    return results

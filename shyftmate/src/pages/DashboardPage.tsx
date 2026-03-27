@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { LiveClockPanel } from '@/components/LiveClockPanel'
 import {
   BarChart,
   Bar,
@@ -205,6 +206,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Live clock-in panel */}
+      <LiveClockPanel />
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

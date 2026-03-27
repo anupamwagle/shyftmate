@@ -2,9 +2,10 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
 from app.database import Base
 from app.models.base import TimestampMixin, UUIDPrimaryKey
@@ -208,3 +209,15 @@ class KronosPaycode(Base, UUIDPrimaryKey):
     aus_oracle_leave_reason: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     export_to_payroll: Mapped[bool] = mapped_column(Boolean, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AwardConstant(Base, UUIDPrimaryKey):
+    __tablename__ = "award_constants"
+    award_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    constant_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    constant_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    effective_from: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    effective_to: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    __table_args__ = (UniqueConstraint("award_code", "constant_key", name="uq_award_constants_code_key"),)

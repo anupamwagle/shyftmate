@@ -1,4 +1,4 @@
-from app.models.user import Organisation, User, RefreshToken, OTPCode
+from app.models.user import Organisation, User, RefreshToken, OTPCode, KronosToken
 from app.models.agreement import (
     Agreement,
     EmployeeTypeConfig,
@@ -8,6 +8,7 @@ from app.models.agreement import (
     WageGrade,
     KronosConfig,
     KronosPaycode,
+    AwardConstant,
 )
 from app.models.workforce import (
     Location,
@@ -23,6 +24,12 @@ from app.models.workforce import (
     LeaveRequest,
     Announcement,
     Message,
+    PayrollExportJob,
+    ShiftSwap,
+    MessageGroup,
+    EmployeeSkill,
+    EmployeeDocument,
+    ShiftTemplate,
 )
 from app.models.conversation import ConversationSession, ChatMessage, Prospect
 from app.models.audit import AuditLog
@@ -32,6 +39,7 @@ __all__ = [
     "User",
     "RefreshToken",
     "OTPCode",
+    "KronosToken",
     "Agreement",
     "EmployeeTypeConfig",
     "RuleLine",
@@ -40,6 +48,7 @@ __all__ = [
     "WageGrade",
     "KronosConfig",
     "KronosPaycode",
+    "AwardConstant",
     "Location",
     "EmployeeProfile",
     "EmployeeAvailability",
@@ -53,6 +62,12 @@ __all__ = [
     "LeaveRequest",
     "Announcement",
     "Message",
+    "PayrollExportJob",
+    "ShiftSwap",
+    "MessageGroup",
+    "EmployeeSkill",
+    "EmployeeDocument",
+    "ShiftTemplate",
     "ConversationSession",
     "ChatMessage",
     "Prospect",

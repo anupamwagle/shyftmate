@@ -2,13 +2,14 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.main import limiter
 from app.models.conversation import ChatMessage, ConversationSession
 from app.models.user import User
 from app.schemas.conversation import (
@@ -98,9 +99,11 @@ async def update_session(
 
 
 @router.post("/sessions/{session_id}/messages", response_model=ChatReply, summary="Send message and get AI reply")
+@limiter.limit("10/minute")
 async def send_message(
     session_id: uuid.UUID,
     body: ChatMessageCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
