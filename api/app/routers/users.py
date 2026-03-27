@@ -284,6 +284,36 @@ async def update_location(
     return location
 
 
+# ── Org Context Switching (super_admin only) ─────────────────
+
+@router.post("/orgs/switch", response_model=dict, summary="Switch org context (super_admin)")
+async def switch_org_context(
+    body: dict,
+    request: Request,
+    current_user: User = Depends(require_roles("super_admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Super admin switches their active org context. Returns a new JWT scoped to the target org."""
+    from app.security import create_access_token
+    org_id = body.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=422, detail={"error_code": "VALIDATION_ERROR", "message": "org_id is required.", "detail": None})
+    org = await db.get(Organisation, uuid.UUID(org_id))
+    if org is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ORG_NOT_FOUND", "message": "Organisation not found.", "detail": None})
+    # Issue a new access token scoped to the target org (role remains super_admin)
+    settings = get_settings()
+    token = create_access_token(
+        subject=str(current_user.id),
+        role=current_user.role,
+        org_id=str(org.id),
+        expires_minutes=settings.JWT_ACCESS_EXPIRE_MINUTES,
+    )
+    await log_action(db, "organisation", org.id, "context_switch", current_user.id,
+                     ip_address=request.client.host if request.client else None)
+    return {"access_token": token, "org_id": str(org.id), "org_name": org.name}
+
+
 @router.delete("/locations/{location_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete location")
 async def delete_location(
     location_id: uuid.UUID,
