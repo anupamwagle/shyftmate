@@ -237,3 +237,21 @@ class Message(Base, UUIDPrimaryKey):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+# ── Payroll Export ───────────────────────────────────────────
+
+class PayrollExportJob(Base, UUIDPrimaryKey):
+    __tablename__ = "payroll_export_jobs"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organisations.id"))
+    platform: Mapped[str] = mapped_column(String(30))
+    # kronos | keypay | myob | xero
+    agreement_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    timesheet_ids: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    # pending | running | done | failed
+    result_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

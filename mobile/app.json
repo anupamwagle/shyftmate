@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Gator",
+    "slug": "gator",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "gator",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#4F46E5"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ai.gator.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Gator needs microphone access to record your answers."
+      }
+    },
+    "android": {
+      "package": "ai.gator.app",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-speech",
+      ["expo-av", { "microphonePermission": "Allow Gator to access your microphone." }],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "backgroundColor": "#4F46E5",
+          "resizeMode": "contain"
+        }
+      ]
+    ],
+    "extra": {
+      "router": { "origin": false },
+      "eas": { "projectId": "your-eas-project-id" }
+    }
+  }
+}

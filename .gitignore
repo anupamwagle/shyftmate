@@ -51,3 +51,6 @@ logs/
 .coverage
 htmlcov/
 coverage/
+
+# Claude Code local config
+.claude/

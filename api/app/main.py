@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.config import get_settings
-from app.routers import auth, users, agreements, rules, chat, telephony, export, audit, health
+from app.routers import auth, users, agreements, rules, chat, telephony, export, audit, health, workforce
 
 settings = get_settings()
 limiter = Limiter(key_func=get_remote_address)
@@ -67,3 +67,4 @@ app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(telephony.router, prefix="/api/v1/telephony", tags=["Telephony"])
 app.include_router(export.router, prefix="/api/v1/export", tags=["Export"])
 app.include_router(audit.router, prefix="/api/v1/audit", tags=["Audit"])
+app.include_router(workforce.router, prefix="/api/v1", tags=["Workforce"])
