@@ -1,5 +1,6 @@
 """Auth router — email+password, Google OAuth2, Apple Sign-In, OTP 2FA, refresh, logout."""
 import hashlib
+import logging
 import random
 import string
 from datetime import datetime, timedelta, timezone
@@ -31,6 +32,7 @@ from app.security import (
 from app.services.email_service import get_email_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _hash_token(token: str) -> str:
@@ -359,7 +361,11 @@ async def request_otp(
     )
     db.add(otp_record)
 
-    get_email_service().send_otp_email(user.email, code, body.purpose)
+    settings = get_settings()
+    if settings.ENV == "dev":
+        logger.warning("DEV MODE — OTP for %s: %s", user.email, code)
+    else:
+        get_email_service().send_otp_email(user.email, code, body.purpose)
 
     return {"message": "If that email is registered, an OTP has been sent."}
 
