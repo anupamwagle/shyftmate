@@ -101,6 +101,26 @@ async def login(
     access_token, refresh_token = _make_tokens(user)
     await _store_refresh_token(user.id, refresh_token, db)
 
+    # Auto-send OTP on login (invalidate old ones first)
+    existing = await db.execute(
+        select(OTPCode).where(OTPCode.user_id == user.id, OTPCode.used == False)
+    )
+    for otp in existing.scalars().all():
+        otp.used = True
+    code = _generate_otp()
+    db.add(OTPCode(
+        user_id=user.id,
+        code=code,
+        purpose="login",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        created_at=datetime.now(timezone.utc),
+    ))
+    settings = get_settings()
+    if settings.ENV == "dev":
+        print(f"[DEV] OTP for {user.email}: {code}", flush=True)
+    else:
+        get_email_service().send_otp_email(user.email, code, "login")
+
     return TokenOut(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -363,7 +383,7 @@ async def request_otp(
 
     settings = get_settings()
     if settings.ENV == "dev":
-        logger.warning("DEV MODE — OTP for %s: %s", user.email, code)
+        print(f"[DEV] OTP for {user.email}: {code}", flush=True)
     else:
         get_email_service().send_otp_email(user.email, code, body.purpose)
 
