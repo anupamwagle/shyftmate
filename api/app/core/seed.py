@@ -37,13 +37,14 @@ async def run_seed(db: AsyncSession) -> None:
             },
         )
 
-    # Ensure super admin user exists
+    # Ensure super admin user exists with a password
     result = await db.execute(
-        text("SELECT id FROM users WHERE email = :email"),
+        text("SELECT id, hashed_password FROM users WHERE email = :email"),
         {"email": settings.SUPER_ADMIN_EMAIL},
     )
-    if not result.scalar_one_or_none():
-        hashed = pwd_context.hash(settings.SUPER_ADMIN_PASSWORD)
+    row = result.fetchone()
+    hashed = pwd_context.hash(settings.SUPER_ADMIN_PASSWORD)
+    if not row:
         await db.execute(
             text(
                 "INSERT INTO users "
@@ -57,4 +58,9 @@ async def run_seed(db: AsyncSession) -> None:
                 "pwd": hashed,
             },
         )
-        await db.commit()
+    elif not row.hashed_password:
+        await db.execute(
+            text("UPDATE users SET hashed_password = :pwd WHERE email = :email"),
+            {"pwd": hashed, "email": settings.SUPER_ADMIN_EMAIL},
+        )
+    await db.commit()

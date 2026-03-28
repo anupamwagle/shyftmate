@@ -140,6 +140,75 @@ class ShiftOut(BaseModel):
     updated_at: datetime
 
 
+# ── Shift flat (frontend-facing field names) ─────────────────
+
+class ShiftFlatCreate(BaseModel):
+    user_id: Optional[uuid.UUID] = None
+    location_id: Optional[uuid.UUID] = None
+    role_name: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    break_minutes: int = 0
+    notes: Optional[str] = None
+
+
+class ShiftFlatOut(BaseModel):
+    id: uuid.UUID
+    org_id: uuid.UUID
+    location_id: Optional[uuid.UUID] = None
+    location_name: Optional[str] = None
+    user_id: Optional[uuid.UUID] = None
+    employee_name: Optional[str] = None
+    role_name: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    break_minutes: int
+    status: str
+    notes: Optional[str] = None
+    is_published: bool
+    created_at: datetime
+
+
+# ── Dashboard ─────────────────────────────────────────────────
+
+class ClockedInEmployeeOut(BaseModel):
+    user_id: uuid.UUID
+    employee_name: str
+    avatar_url: Optional[str] = None
+    clocked_in_at: datetime
+    location_name: Optional[str] = None
+
+
+class LabourCostPoint(BaseModel):
+    period: str
+    cost: float
+    hours: float
+    location_name: Optional[str] = None
+
+
+class DashboardActivityItem(BaseModel):
+    id: uuid.UUID
+    org_id: Optional[str] = None
+    user_id: Optional[uuid.UUID] = None
+    user_name: Optional[str] = None
+    action: str
+    resource_type: str
+    resource_id: Optional[str] = None
+    details: Optional[dict] = None
+    created_at: datetime
+
+
+class DashboardStatsOut(BaseModel):
+    labour_cost_this_week: float
+    labour_cost_last_week: float
+    pending_timesheet_approvals: int
+    pending_leave_approvals: int
+    clocked_in_now: list[ClockedInEmployeeOut]
+    upcoming_shifts: list[ShiftFlatOut]
+    recent_activity: list[DashboardActivityItem]
+    labour_cost_chart: list[LabourCostPoint]
+
+
 # ── Clock Event ──────────────────────────────────────────────
 
 class ClockEventCreate(BaseModel):

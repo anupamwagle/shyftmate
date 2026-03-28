@@ -82,7 +82,7 @@ Both systems share a single PostgreSQL 16 database and FastAPI middleware.
 | **Email** | AWS SES via `boto3` |
 | **Auth** | JWT + RBAC + Google OAuth2 + Apple Sign-In + mandatory OTP 2FA |
 | **Rate limiting** | slowapi |
-| **Mobile** | Expo SDK 51, Expo Router v3, XState v5, NativeWind v4, Reanimated v3 |
+| **Mobile** | Expo SDK 54, Expo Router v6, XState v5, NativeWind v4, Reanimated v4 |
 | **Web** | Vite 5, React 18, TypeScript, shadcn/ui, TanStack Query v5, TanStack Table v8, FullCalendar |
 | **Font** | Inter |
 | **Icons** | Lucide React / `@expo/vector-icons` |
@@ -98,6 +98,8 @@ C:\Gator\
 │   ├── app/
 │   │   ├── main.py               # App factory, middleware, routers, startup validation
 │   │   ├── config.py             # Pydantic Settings (ENV=dev|prod)
+│   │   ├── cache.py              # Redis get/set/del with graceful fallback
+│   │   ├── limiter.py            # slowapi Limiter singleton (avoids circular import)
 │   │   ├── database.py           # Async SQLAlchemy engine + session factory
 │   │   ├── dependencies.py       # get_current_user, require_roles()
 │   │   ├── security.py           # JWT create/verify, bcrypt hashing
@@ -180,6 +182,7 @@ C:\Gator\
 │   ├── assets/                   # ⚠ Add icon.png (1024×1024) + splash.png (1284×2778)
 │   ├── app.json
 │   ├── package.json
+│   ├── metro.config.js           # NativeWind v4 CSS processing
 │   └── babel.config.js
 │
 ├── shyftmate/                    # Vite 5 + React 18 — Admin/manager portal
@@ -241,7 +244,7 @@ C:\Gator\
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                # Lint + test + build on push to master
-├── docker-compose.yml            # postgres, pgadmin, ollama, api
+├── docker-compose.yml            # postgres, pgadmin, redis, api (Ollama is external)
 ├── .env.example                  # Template — copy to .env.dev or .env.prod
 ├── .gitignore
 └── README.md
@@ -253,18 +256,20 @@ C:\Gator\
 
 | Tool | Version | Notes |
 |---|---|---|
-| Docker Desktop | Latest | Runs PostgreSQL, pgAdmin, Ollama, and the API |
-| Node.js | 20+ | Shyftmate web portal + Gator mobile app |
+| Docker Desktop | Latest | Runs PostgreSQL, pgAdmin, Redis, and the API |
+| Node.js | 20 LTS+ | Shyftmate web portal + Gator mobile app (Node 18 not supported by Expo SDK 54) |
 | npm | 9+ | Package management |
 | Expo Go app | Latest | Mobile testing on iOS/Android device |
 
 Python is **not required** on your host — the API runs inside Docker (`python:3.11-slim`).
 
+**Running on Windows?** Use WSL2 (Ubuntu). All `bash` and `docker compose` commands should be run from within WSL.
+
 **Optional — for telephony:**
 - [SignalWire account](https://signalwire.com) (~$5 free dev credit, AU numbers available)
 - AWS account (Transcribe + Polly + SES)
 
-**Ollama** runs externally at `http://192.168.4.150/v1` — no local GPU required.
+**Ollama** runs externally at `http://192.168.4.150:11434/v1` — no local GPU required.
 
 ---
 
@@ -292,7 +297,10 @@ JWT_SECRET=          # openssl rand -hex 32
 SUPER_ADMIN_PASSWORD=  # min 12 chars
 
 LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://ollama:11434   # Docker service name, not localhost
+OLLAMA_BASE_URL=http://192.168.4.150:11434/v1   # External Ollama host
+OLLAMA_MODEL=llama3
+
+REDIS_URL=redis://redis:6379   # Docker service name
 
 CORS_ORIGINS=http://localhost:5173,http://localhost:8081
 
@@ -312,8 +320,9 @@ docker compose up --build -d
 Services:
 - **API**: http://localhost:8000 (Swagger UI: http://localhost:8000/docs)
 - **PostgreSQL**: `localhost:5432`
+- **Redis**: `localhost:6379`
 - **pgAdmin**: http://localhost:5050 (`admin@gator.com` / `admin`)
-- **Ollama**: external at `http://192.168.4.150/v1`
+- **Ollama**: external at `http://192.168.4.150:11434/v1`
 
 ### 3. Run migrations and seed the database
 
@@ -343,20 +352,29 @@ npm run dev
 
 ```bash
 cd mobile
-npm install
+npm install --legacy-peer-deps   # --legacy-peer-deps required for Expo 51 peer dep conflicts
 
 # Generate placeholder app assets (required by Expo on first run)
 node scripts/create_assets.js
-
-cp .env.example .env
-
-npx expo start
 ```
+
+**Running on a physical device via WSL?** The device cannot reach WSL's internal IP directly. Use tunnel mode:
+
+```bash
+npx expo start --tunnel
+```
+
+Or if you know your Windows host IP (run `ipconfig` in Windows cmd, find Wi-Fi IPv4):
+
+```bash
+REACT_NATIVE_PACKAGER_HOSTNAME=<your-windows-ip> npx expo start --host lan
+```
+
+For emulators (Android Studio / iOS Simulator), plain `npm start` works fine.
 
 Scan the QR code with **Expo Go** on your phone, or press:
 - `i` → iOS simulator
 - `a` → Android emulator
-- `w` → web preview
 
 > **Before production builds:** replace `mobile/assets/icon.png` (1024×1024 px) and `mobile/assets/splash.png` (1284×2778 px) with real assets.
 
@@ -373,7 +391,7 @@ http://localhost:8000/api/v1
 
 | Group | Routes | Notes |
 |---|---|---|
-| **Auth** | `POST /auth/token` `/refresh` `/logout` `/social/google` `/social/apple` `/otp/request` `/otp/verify` | OTP mandatory after social login |
+| **Auth** | `POST /auth/login` `/refresh` `/logout` `/social/google` `/social/apple` `/otp/request` `/otp/verify` | OTP mandatory after social login |
 | **Orgs & Users** | `GET/POST /orgs` · `GET/PATCH/DELETE /orgs/{id}` · `GET/POST /orgs/{id}/users` · `GET/PATCH /users/{id}` · `GET /users/me` · `POST /orgs/switch` | Org context switch for super_admin |
 | **Locations** | `GET/POST /orgs/{id}/locations` · `PATCH/DELETE /locations/{id}` | |
 | **Agreements** | `GET/POST /agreements` · `GET/PATCH /agreements/{id}` · `/history` · `/activate` · `/rollback/{ver}` | Append-only version chain |
@@ -527,6 +545,7 @@ cp .env.example .env.dev
 | `SUPER_ADMIN_EMAIL` | Default: `superadmin@gator.local` | ✅ |
 | `SUPER_ADMIN_PASSWORD` | Min 12 chars | ✅ |
 | `CORS_ORIGINS` | Comma-separated, e.g. `http://localhost:5173` | ✅ |
+| `REDIS_URL` | Default: `redis://redis:6379` (Docker service name) | |
 
 ### LLM
 
@@ -684,11 +703,11 @@ Uses `claude-sonnet-4-5`. Structured rule extraction via `<rule_delta>` XML tags
 
 ```env
 LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://192.168.4.150/v1
+OLLAMA_BASE_URL=http://192.168.4.150:11434/v1
 OLLAMA_MODEL=llama3
 ```
 
-Ollama runs on an external machine at `192.168.4.150`. The `OLLAMA_BASE_URL` is set directly in `docker-compose.yml` and overrides `.env.dev`.
+Ollama runs on an external machine at `192.168.4.150:11434`. The `OLLAMA_BASE_URL` env var is set in both `.env.dev` and `docker-compose.yml` (docker-compose takes precedence for the API container).
 
 ---
 
@@ -748,7 +767,7 @@ super_admin  >  admin  >  manager  >  reviewer  >  employee
 
 ```bash
 # Step 1: Login
-TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/token \
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"superadmin@gator.local","password":"your-password"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")

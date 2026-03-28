@@ -3,15 +3,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app.config import get_settings
+from app.core.seed import run_seed
+from app.database import get_db
+from app.limiter import limiter
 from app.routers import auth, users, agreements, rules, chat, telephony, export, audit, health, workforce
 
 settings = get_settings()
-limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -37,6 +38,9 @@ async def lifespan(app: FastAPI):
         print("[STARTUP WARNING] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set", file=sys.stderr)
 
     print(f"[STARTUP] Gator API starting — ENV={s.ENV}, LLM={s.LLM_PROVIDER}")
+    async for db in get_db():
+        await run_seed(db)
+        break
     yield
     print("[SHUTDOWN] Gator API stopping")
 

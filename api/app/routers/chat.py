@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.main import limiter
+from app.limiter import limiter
 from app.models.conversation import ChatMessage, ConversationSession
 from app.models.user import User
 from app.schemas.conversation import (

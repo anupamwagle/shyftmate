@@ -1,16 +1,19 @@
 """Workforce management router — Shyftmate endpoints."""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import or_, select
+from sqlalchemy import and_, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import DATE
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.cache import cache_del, cache_get, cache_set
 from app.database import get_db
 from app.dependencies import get_current_user, require_roles
-from app.main import limiter
+from app.limiter import limiter
+from app.models.audit import AuditLog
 from app.models.user import User
 from app.models.workforce import (
     Announcement,
@@ -20,6 +23,7 @@ from app.models.workforce import (
     LeaveBalance,
     LeaveRequest,
     LeaveType,
+    Location,
     Message,
     MessageGroup,
     Roster,
@@ -33,6 +37,7 @@ from app.schemas.workforce import (
     AnnouncementOut,
     ClockEventCreate,
     ClockEventOut,
+    DashboardStatsOut,
     EmployeeProfileCreate,
     EmployeeProfileOut,
     EmployeeProfileUpdate,
@@ -49,6 +54,8 @@ from app.schemas.workforce import (
     RosterOut,
     RosterUpdate,
     ShiftCreate,
+    ShiftFlatCreate,
+    ShiftFlatOut,
     ShiftOut,
     ShiftUpdate,
     TimesheetEntryOut,
@@ -817,3 +824,284 @@ async def get_live_clock_ins(
                 "shift_end": None,
             })
     return results
+
+
+# ── Dashboard Stats ───────────────────────────────────────────
+
+@router.get("/dashboard/stats", response_model=DashboardStatsOut, summary="Dashboard KPIs")
+async def dashboard_stats(
+    current_user: User = Depends(require_roles("manager")),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = current_user.org_id
+    cache_key = f"dashboard:stats:{org_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=7)
+    last_week_start = week_start - timedelta(days=7)
+
+    # Labour costs
+    r = await db.execute(
+        select(func.coalesce(func.sum(Timesheet.total_cost), 0))
+        .where(Timesheet.org_id == org_id, Timesheet.period_start >= week_start, Timesheet.period_start < week_end)
+    )
+    labour_cost_this_week = float(r.scalar())
+
+    r = await db.execute(
+        select(func.coalesce(func.sum(Timesheet.total_cost), 0))
+        .where(Timesheet.org_id == org_id, Timesheet.period_start >= last_week_start, Timesheet.period_start < week_start)
+    )
+    labour_cost_last_week = float(r.scalar())
+
+    # Pending approvals
+    r = await db.execute(
+        select(func.count(Timesheet.id)).where(Timesheet.org_id == org_id, Timesheet.status == "submitted")
+    )
+    pending_timesheet_approvals = r.scalar() or 0
+
+    r = await db.execute(
+        select(func.count(LeaveRequest.id))
+        .join(User, LeaveRequest.user_id == User.id)
+        .where(User.org_id == org_id, LeaveRequest.status == "pending")
+    )
+    pending_leave_approvals = r.scalar() or 0
+
+    # Clocked in now (reuse logic from /clock/live)
+    clock_in_r = await db.execute(
+        select(ClockEvent)
+        .join(User, ClockEvent.user_id == User.id)
+        .where(User.org_id == org_id, ClockEvent.event_type == "clock_in", func.date(ClockEvent.recorded_at) == today)
+        .order_by(ClockEvent.recorded_at.desc())
+    )
+    clock_ins = clock_in_r.scalars().all()
+
+    clock_out_r = await db.execute(
+        select(ClockEvent.user_id)
+        .join(User, ClockEvent.user_id == User.id)
+        .where(User.org_id == org_id, ClockEvent.event_type == "clock_out", func.date(ClockEvent.recorded_at) == today)
+    )
+    clocked_out_ids = {row[0] for row in clock_out_r.all()}
+
+    seen: set[uuid.UUID] = set()
+    clocked_in_now = []
+    for ci in clock_ins:
+        if ci.user_id in seen or ci.user_id in clocked_out_ids:
+            continue
+        seen.add(ci.user_id)
+        u_r = await db.execute(select(User).where(User.id == ci.user_id))
+        u = u_r.scalar_one_or_none()
+        loc_name = None
+        if ci.location_id:
+            loc_r = await db.execute(select(Location).where(Location.id == ci.location_id))
+            loc = loc_r.scalar_one_or_none()
+            loc_name = loc.name if loc else None
+        if u:
+            clocked_in_now.append({
+                "user_id": u.id,
+                "employee_name": f"{u.first_name or ''} {u.last_name or ''}".strip() or u.email,
+                "avatar_url": getattr(u, "avatar_url", None),
+                "clocked_in_at": ci.recorded_at,
+                "location_name": loc_name,
+            })
+
+    # Upcoming shifts (next 24h)
+    next_24h = now + timedelta(hours=24)
+    upcoming_r = await db.execute(
+        select(Shift, Roster, User, Location)
+        .join(Roster, Shift.roster_id == Roster.id)
+        .outerjoin(User, Shift.assigned_user_id == User.id)
+        .outerjoin(Location, Shift.location_id == Location.id)
+        .where(Roster.org_id == org_id, Shift.start_datetime >= now, Shift.start_datetime <= next_24h)
+        .order_by(Shift.start_datetime)
+        .limit(10)
+    )
+    upcoming_shifts = []
+    for row in upcoming_r.all():
+        s, ros, u, loc = row
+        upcoming_shifts.append({
+            "id": s.id,
+            "org_id": ros.org_id,
+            "location_id": s.location_id,
+            "location_name": loc.name if loc else None,
+            "user_id": s.assigned_user_id,
+            "employee_name": (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.email) if u else None,
+            "role_name": s.role,
+            "start_time": s.start_datetime,
+            "end_time": s.end_datetime,
+            "break_minutes": s.break_minutes,
+            "status": s.status,
+            "notes": s.notes,
+            "is_published": ros.status == "published",
+            "created_at": s.created_at,
+        })
+
+    # Recent activity (last 5 audit logs)
+    audit_r = await db.execute(
+        select(AuditLog, User)
+        .outerjoin(User, AuditLog.actor == User.id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(5)
+    )
+    recent_activity = []
+    for row in audit_r.all():
+        log, u = row
+        recent_activity.append({
+            "id": log.id,
+            "org_id": str(org_id),
+            "user_id": log.actor,
+            "user_name": (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.email) if u else None,
+            "action": f"{log.entity_type} {log.action}",
+            "resource_type": log.entity_type,
+            "resource_id": str(log.entity_id),
+            "details": log.after_payload,
+            "created_at": log.created_at,
+        })
+
+    # Labour cost chart (Mon–Sun of current week)
+    chart = []
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    for i in range(7):
+        day = week_start + timedelta(days=i)
+        r = await db.execute(
+            select(
+                func.coalesce(func.sum(Timesheet.total_cost), 0),
+                func.coalesce(func.sum(Timesheet.total_hours), 0),
+            ).where(Timesheet.org_id == org_id, Timesheet.period_start == day)
+        )
+        cost, hours = r.one()
+        chart.append({"period": day_names[i], "cost": float(cost), "hours": float(hours), "location_name": None})
+
+    result = {
+        "labour_cost_this_week": labour_cost_this_week,
+        "labour_cost_last_week": labour_cost_last_week,
+        "pending_timesheet_approvals": pending_timesheet_approvals,
+        "pending_leave_approvals": pending_leave_approvals,
+        "clocked_in_now": clocked_in_now,
+        "upcoming_shifts": upcoming_shifts,
+        "recent_activity": recent_activity,
+        "labour_cost_chart": chart,
+    }
+    await cache_set(cache_key, result, ttl=30)
+    return result
+
+
+# ── Flat Shifts (frontend-facing) ────────────────────────────
+
+@router.get("/shifts", response_model=list[ShiftFlatOut], summary="List shifts across all rosters")
+async def list_shifts_flat(
+    start: Optional[datetime] = Query(None),
+    end: Optional[datetime] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = current_user.org_id
+    stmt = (
+        select(Shift, Roster, User, Location)
+        .join(Roster, Shift.roster_id == Roster.id)
+        .outerjoin(User, Shift.assigned_user_id == User.id)
+        .outerjoin(Location, Shift.location_id == Location.id)
+        .where(Roster.org_id == org_id)
+    )
+    if start:
+        stmt = stmt.where(Shift.start_datetime >= start)
+    if end:
+        stmt = stmt.where(Shift.start_datetime < end)
+    result = await db.execute(stmt.order_by(Shift.start_datetime))
+    shifts = []
+    for row in result.all():
+        s, ros, u, loc = row
+        shifts.append({
+            "id": s.id,
+            "org_id": ros.org_id,
+            "location_id": s.location_id,
+            "location_name": loc.name if loc else None,
+            "user_id": s.assigned_user_id,
+            "employee_name": (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.email) if u else None,
+            "role_name": s.role,
+            "start_time": s.start_datetime,
+            "end_time": s.end_datetime,
+            "break_minutes": s.break_minutes,
+            "status": s.status,
+            "notes": s.notes,
+            "is_published": ros.status == "published",
+            "created_at": s.created_at,
+        })
+    return shifts
+
+
+@router.post("/shifts", response_model=ShiftFlatOut, status_code=201, summary="Create shift (auto-assigns to roster)")
+async def create_shift_flat(
+    body: ShiftFlatCreate,
+    current_user: User = Depends(require_roles("manager")),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = current_user.org_id
+    # Find or create roster for the week containing start_time
+    week_start = body.start_time.date() - timedelta(days=body.start_time.weekday())
+    r = await db.execute(select(Roster).where(Roster.org_id == org_id, Roster.week_start == week_start))
+    roster = r.scalar_one_or_none()
+    if not roster:
+        roster = Roster(org_id=org_id, week_start=week_start, status="draft", created_by=current_user.id)
+        db.add(roster)
+        await db.flush()
+
+    shift = Shift(
+        roster_id=roster.id,
+        location_id=body.location_id,
+        assigned_user_id=body.user_id,
+        role=body.role_name,
+        start_datetime=body.start_time,
+        end_datetime=body.end_time,
+        break_minutes=body.break_minutes,
+        notes=body.notes,
+    )
+    db.add(shift)
+    await db.flush()
+
+    u, loc = None, None
+    if shift.assigned_user_id:
+        u_r = await db.execute(select(User).where(User.id == shift.assigned_user_id))
+        u = u_r.scalar_one_or_none()
+    if shift.location_id:
+        loc_r = await db.execute(select(Location).where(Location.id == shift.location_id))
+        loc = loc_r.scalar_one_or_none()
+
+    return {
+        "id": shift.id,
+        "org_id": roster.org_id,
+        "location_id": shift.location_id,
+        "location_name": loc.name if loc else None,
+        "user_id": shift.assigned_user_id,
+        "employee_name": (f"{u.first_name or ''} {u.last_name or ''}".strip() or u.email) if u else None,
+        "role_name": shift.role,
+        "start_time": shift.start_datetime,
+        "end_time": shift.end_datetime,
+        "break_minutes": shift.break_minutes,
+        "status": shift.status,
+        "notes": shift.notes,
+        "is_published": roster.status == "published",
+        "created_at": shift.created_at,
+    }
+
+
+@router.post("/shifts/publish", summary="Publish current week's roster")
+async def publish_current_roster(
+    current_user: User = Depends(require_roles("manager")),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = current_user.org_id
+    today = datetime.now(timezone.utc).date()
+    week_start = today - timedelta(days=today.weekday())
+    r = await db.execute(select(Roster).where(Roster.org_id == org_id, Roster.week_start == week_start))
+    roster = r.scalar_one_or_none()
+    if not roster:
+        raise HTTPException(status_code=404, detail={"error_code": "ROSTER_NOT_FOUND", "message": "No roster for current week.", "detail": None})
+    roster.status = "published"
+    roster.published_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"message": "Roster published", "roster_id": str(roster.id)}

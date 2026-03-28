@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     KRONOS_CLIENT_SECRET: str = ""
     KRONOS_COMPANY_SHORT_NAME: str = ""
 
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379"
+
     # Super Admin
     SUPER_ADMIN_EMAIL: str = "superadmin@gator.local"
     SUPER_ADMIN_PASSWORD: str = "ChangeMe123!"

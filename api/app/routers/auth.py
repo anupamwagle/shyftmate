@@ -65,9 +65,9 @@ async def _store_refresh_token(user_id, raw_token: str, db: AsyncSession) -> Non
     db.add(rt)
 
 
-# ── POST /token ──────────────────────────────────────────────
+# ── POST /login ──────────────────────────────────────────────
 
-@router.post("/token", response_model=TokenOut, summary="Email/password login")
+@router.post("/login", response_model=TokenOut, summary="Email/password login")
 async def login(
     body: LoginIn,
     db: AsyncSession = Depends(get_db),

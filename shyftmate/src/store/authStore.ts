@@ -147,7 +147,7 @@ export const useAuthStore = create<AuthState>()(
 
       fetchUser: async () => {
         try {
-          const { data } = await api.get<UserOut>('/auth/me')
+          const { data } = await api.get<UserOut>('/users/me')
           set((state) => ({
             user: data,
             role: data.role,

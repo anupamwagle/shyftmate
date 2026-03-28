@@ -25,7 +25,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-speech",
       ["expo-av", { "microphonePermission": "Allow Gator to access your microphone." }],
       [
         "expo-splash-screen",

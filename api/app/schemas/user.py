@@ -76,7 +76,7 @@ class UserUpdate(BaseModel):
 # ── Auth ─────────────────────────────────────────────────────
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
