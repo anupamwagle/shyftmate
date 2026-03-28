@@ -20,7 +20,7 @@ import { Colors, Spacing, FontSize, BorderRadius, Shadow } from '../../src/const
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setOtpPending } = useAuthStore();
+  const { setOtpPending, setTokens } = useAuthStore();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -43,7 +43,8 @@ export default function LoginScreen() {
     setIsLoading(true);
     try {
       const res = await authApi.login({ email: email.trim().toLowerCase(), password });
-      // Backend sends OTP to email; navigate to OTP screen
+      // Store provisional token so OTP verify request can send it as Bearer
+      await setTokens(res.data.access_token, res.data.refresh_token);
       setOtpPending(true);
       router.push({ pathname: '/(auth)/otp', params: { email: email.trim().toLowerCase() } });
     } catch (err: any) {

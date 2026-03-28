@@ -212,10 +212,7 @@ export const apiClient = createApiClient();
 
 export const authApi = {
   login: (data: LoginRequest) =>
-    apiClient.post<{ message: string; email: string }>(
-      '/auth/login',
-      data,
-    ),
+    apiClient.post<TokenResponse>('/auth/login', data),
 
   verifyOtp: (data: OtpVerifyRequest) =>
     apiClient.post<TokenResponse>('/auth/otp/verify', data),
