@@ -309,12 +309,13 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Run all database migrations
+# Run all database migrations (password matches docker-compose default)
 alembic upgrade head
 
 # Seed super admin + Kronos paycodes
-psql $DATABASE_URL_SYNC -f ../db/seeds/super_admin.sql
-psql $DATABASE_URL_SYNC -f ../db/seeds/kronos_paycodes.sql
+psql -U gator -h localhost -p 5432 -d gator_dev -f ../db/seeds/super_admin.sql
+psql -U gator -h localhost -p 5432 -d gator_dev -f ../db/seeds/kronos_paycodes.sql
+# Password: gator_dev_password
 
 # Start with hot-reload
 uvicorn app.main:app --reload --port 8000
