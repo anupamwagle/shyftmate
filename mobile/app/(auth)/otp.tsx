@@ -116,7 +116,7 @@ export default function OtpScreen() {
 
       // Fetch user profile
       const { apiClient } = await import('../../src/services/apiClient');
-      const userRes = await apiClient.get('/auth/me');
+      const userRes = await apiClient.get('/users/me');
       setUser(userRes.data);
       setOtpPending(false);
 

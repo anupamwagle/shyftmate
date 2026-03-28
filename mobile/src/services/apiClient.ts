@@ -221,7 +221,7 @@ export const authApi = {
     apiClient.post<{ message: string }>('/auth/otp/resend', { email }),
 
   me: () =>
-    apiClient.get<import('../stores/authStore').UserOut>('/auth/me'),
+    apiClient.get<import('../stores/authStore').UserOut>('/users/me'),
 
   googleOAuth: () =>
     apiClient.get<{ url: string }>('/auth/google/url'),
