@@ -232,7 +232,7 @@ C:\Gator\
 │
 ├── db/
 │   ├── seeds/
-│   │   ├── super_admin.sql       # Seeds platform org + superadmin@gator.local
+│   │   ├── super_admin.sql       # Seeds platform org + admin@gator.com
 │   │   └── kronos_paycodes.sql   # Seeds global Kronos paycode library
 │   └── scripts/
 │       └── reset.sh              # Drop + recreate dev database
@@ -495,7 +495,7 @@ In `ENV=dev`, `detail` includes the raw exception for debugging.
 http://localhost:5173
 ```
 
-Log in with `superadmin@gator.local` and your `SUPER_ADMIN_PASSWORD`.
+Log in with `admin@gator.com` and your `SUPER_ADMIN_PASSWORD`.
 
 ### Page Map
 
@@ -609,7 +609,7 @@ cp .env.example .env.dev
 | `JWT_SECRET` | `openssl rand -hex 32` | ✅ |
 | `JWT_ACCESS_EXPIRE_MINUTES` | Default: `30` | |
 | `JWT_REFRESH_EXPIRE_DAYS` | Default: `7` | |
-| `SUPER_ADMIN_EMAIL` | Default: `superadmin@gator.local` | ✅ |
+| `SUPER_ADMIN_EMAIL` | Default: `admin@gator.com` | ✅ |
 | `SUPER_ADMIN_PASSWORD` | Min 12 chars | ✅ |
 | `CORS_ORIGINS` | Comma-separated, e.g. `http://localhost:5173` | ✅ |
 | `REDIS_URL` | Default: `redis://redis:6379` (Docker service name) | |
@@ -836,7 +836,7 @@ super_admin  >  admin  >  manager  >  reviewer  >  employee
 # Step 1: Login
 TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"superadmin@gator.local","password":"your-password"}' \
+  -d '{"email":"admin@gator.com","password":"your-password"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 # Step 2: Request OTP (sent to email)
@@ -909,7 +909,7 @@ Workflow file: `.github/workflows/ci.yml`
 
 | | |
 |---|---|
-| Email | `superadmin@gator.local` |
+| Email | `admin@gator.com` |
 | Password | Value of `SUPER_ADMIN_PASSWORD` in your `.env.dev` |
 | Role | `super_admin` |
 | Org | `Gator Platform` |
