@@ -253,11 +253,12 @@ C:\Gator\
 
 | Tool | Version | Notes |
 |---|---|---|
-| Docker Desktop | Latest | PostgreSQL + pgAdmin + Ollama |
-| Python | 3.11+ | API |
-| Node.js | 20+ | Shyftmate web + mobile |
+| Docker Desktop | Latest | Runs PostgreSQL, pgAdmin, Ollama, and the API |
+| Node.js | 20+ | Shyftmate web portal + Gator mobile app |
 | npm | 9+ | Package management |
 | Expo Go app | Latest | Mobile testing on iOS/Android device |
+
+Python is **not required** on your host — the API runs inside Docker (`python:3.11-slim`).
 
 **Optional — for telephony:**
 - [SignalWire account](https://signalwire.com) (~$5 free dev credit, AU numbers available)
@@ -273,59 +274,65 @@ C:\Gator\
 ### 1. Clone and set up environment
 
 ```bash
-git clone git@github.com:anupamwagle/shyftmate.git C:\Gator
-cd C:\Gator
+git clone git@github.com:anupamwagle/shyftmate.git
+cd shyftmate
 
 cp .env.example .env.dev
-# Edit .env.dev — minimum required:
-#   JWT_SECRET        → openssl rand -hex 32
-#   SUPER_ADMIN_PASSWORD
-#   AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY  (for OTP emails via SES)
-#   SES_FROM_EMAIL    (must be SES-verified)
 ```
 
-### 2. Start infrastructure
+Edit `.env.dev` with the following minimum values. Use Docker service names (`postgres`, `ollama`) as hosts — this is what the API container uses internally:
+
+```env
+ENV=dev
+
+# Docker service hostnames — do NOT use localhost here
+DATABASE_URL=postgresql+asyncpg://gator:gator_dev_password@postgres:5432/gator_dev
+DATABASE_URL_SYNC=postgresql://gator:gator_dev_password@postgres:5432/gator_dev
+
+JWT_SECRET=          # openssl rand -hex 32
+SUPER_ADMIN_PASSWORD=  # min 12 chars
+
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://ollama:11434   # Docker service name, not localhost
+
+CORS_ORIGINS=http://localhost:5173,http://localhost:8081
+
+# Optional — required for OTP emails
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+SES_FROM_EMAIL=       # must be SES-verified
+```
+
+### 2. Start all services
 
 ```bash
-# Start PostgreSQL + pgAdmin + Ollama
-docker compose up -d postgres pgadmin ollama
+# Builds the API image and starts postgres, pgadmin, ollama, and the API
+docker compose up --build -d
 
 # Pull a local LLM (one-time, ~4 GB) — skip if using Anthropic
 docker exec gator_ollama ollama pull llama3
 ```
 
 Services:
+- **API**: http://localhost:8000 (Swagger UI: http://localhost:8000/docs)
 - **PostgreSQL**: `localhost:5432`
-- **pgAdmin**: http://localhost:5050 (`admin@gator.local` / `admin`)
+- **pgAdmin**: http://localhost:5050 (`admin@gator.com` / `admin`)
 - **Ollama**: http://localhost:11434
 
-### 3. Start the API
+### 3. Run migrations and seed the database
+
+Run these once after first `docker compose up`, and again after any schema change:
 
 ```bash
-cd api
-
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-pip install -r requirements.txt -r requirements-dev.txt
-
-# Run all database migrations (password matches docker-compose default)
-alembic upgrade head
+# Apply all Alembic migrations
+docker exec gator_api alembic upgrade head
 
 # Seed super admin + Kronos paycodes
-psql -U gator -h localhost -p 5432 -d gator_dev -f ../db/seeds/super_admin.sql
-psql -U gator -h localhost -p 5432 -d gator_dev -f ../db/seeds/kronos_paycodes.sql
-# Password: gator_dev_password
-
-# Start with hot-reload
-uvicorn app.main:app --reload --port 8000
+docker exec -i gator_postgres psql -U gator -d gator_dev < db/seeds/super_admin.sql
+docker exec -i gator_postgres psql -U gator -d gator_dev < db/seeds/kronos_paycodes.sql
 ```
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Health**: http://localhost:8000/health
-
-> Swagger UI and ReDoc are disabled when `ENV=prod`.
+> The API container mounts `./api` with `--reload` — code changes are reflected immediately without rebuilding.
 
 ### 4. Start the Shyftmate web portal
 
@@ -356,15 +363,6 @@ Scan the QR code with **Expo Go** on your phone, or press:
 - `w` → web preview
 
 > **Before production builds:** replace `mobile/assets/icon.png` (1024×1024 px) and `mobile/assets/splash.png` (1284×2778 px) with real assets.
-
-### 6. Run everything via Docker (API only)
-
-```bash
-# Builds the API image and runs it alongside postgres
-docker compose up --build
-```
-
-The API container mounts `./api` with `--reload` — code changes are reflected immediately.
 
 ---
 
@@ -593,20 +591,18 @@ cp .env.example .env.dev
 ### Migrations
 
 ```bash
-cd api
-
-# Apply all pending migrations
-alembic upgrade head
+# Apply all pending migrations (via Docker)
+docker exec gator_api alembic upgrade head
 
 # Create a new migration after model changes
-alembic revision --autogenerate -m "add xyz column"
+docker exec gator_api alembic revision --autogenerate -m "add xyz column"
 
 # Rollback one step
-alembic downgrade -1
+docker exec gator_api alembic downgrade -1
 
 # Show current state
-alembic current
-alembic history
+docker exec gator_api alembic current
+docker exec gator_api alembic history
 ```
 
 ### Migration chain
@@ -620,21 +616,23 @@ alembic history
 ### Seeds
 
 ```bash
-# Run once after alembic upgrade head
-psql $DATABASE_URL_SYNC -f db/seeds/super_admin.sql
-psql $DATABASE_URL_SYNC -f db/seeds/kronos_paycodes.sql
+# Run once after alembic upgrade head (via Docker)
+docker exec -i gator_postgres psql -U gator -d gator_dev < db/seeds/super_admin.sql
+docker exec -i gator_postgres psql -U gator -d gator_dev < db/seeds/kronos_paycodes.sql
 ```
 
 ### Reset dev database
 
 ```bash
+# Requires DATABASE_URL_SYNC env var to be exported first
+export DATABASE_URL_SYNC=postgresql://gator:gator_dev_password@localhost:5432/gator_dev
+export DATABASE_URL=postgresql+asyncpg://gator:gator_dev_password@localhost:5432/gator_dev
 bash db/scripts/reset.sh
-# Then re-run migrations and seeds
 ```
 
 ### pgAdmin
 
-http://localhost:5050 — `admin@gator.local` / `admin`
+http://localhost:5050 — `admin@gator.com` / `admin`
 
 Add server: host `postgres`, port `5432`, user `gator`, password `gator_dev_password`, db `gator_dev`
 
@@ -801,8 +799,8 @@ Tests use an isolated `gator_test` database. The `conftest.py` fixture runs `ale
 
 Required environment for tests:
 ```bash
-export DATABASE_URL=postgresql+asyncpg://gator:gator@localhost:5432/gator_test
-export DATABASE_URL_SYNC=postgresql://gator:gator@localhost:5432/gator_test
+export DATABASE_URL=postgresql+asyncpg://gator:gator_dev_password@localhost:5432/gator_test
+export DATABASE_URL_SYNC=postgresql://gator:gator_dev_password@localhost:5432/gator_test
 export JWT_SECRET=test-secret-do-not-use
 export LLM_PROVIDER=ollama
 export SUPER_ADMIN_PASSWORD=TestPassword123!
@@ -848,7 +846,7 @@ Workflow file: `.github/workflows/ci.yml`
 | | |
 |---|---|
 | URL | http://localhost:5050 |
-| Email | `admin@gator.local` |
+| Email | `admin@gator.com` |
 | Password | `admin` |
 
 ### PostgreSQL
@@ -901,8 +899,8 @@ curl -s http://localhost:8000/openapi.json \
   | python3 -c "import sys,json; [print(p) for p in json.load(sys.stdin)['paths']]"
 
 # Check migration state
-cd api && alembic current
+docker exec gator_api alembic current
 
 # Tail alembic history
-cd api && alembic history --verbose
+docker exec gator_api alembic history --verbose
 ```
