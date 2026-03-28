@@ -1,14 +1,19 @@
 """Chat router — mobile BA conversation sessions."""
+import base64
+import io
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_roles
 from app.limiter import limiter
 from app.models.conversation import ChatMessage, ConversationSession
 from app.models.user import User
@@ -17,9 +22,20 @@ from app.schemas.conversation import (
     ChatMessageOut,
     ChatReply,
     ConversationSessionCreate,
+    ConversationSessionDetailOut,
     ConversationSessionOut,
 )
 from app.services.llm_service import get_ai_reply
+
+
+class TranscribeRequest(BaseModel):
+    audio_base64: str
+    mime_type: str = "audio/m4a"
+
+
+class TranscribeResponse(BaseModel):
+    transcript: str
+    confidence: float
 
 router = APIRouter()
 
@@ -61,7 +77,7 @@ async def create_session(
     )
 
 
-@router.get("/sessions/{session_id}", response_model=ConversationSessionOut, summary="Get session")
+@router.get("/sessions/{session_id}", response_model=ConversationSessionDetailOut, summary="Get session")
 async def get_session(
     session_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
@@ -164,3 +180,71 @@ async def send_message(
         rule_delta=rule_delta if rule_delta else None,
         session=ConversationSessionOut.model_validate(session),
     )
+
+
+@router.post("/sessions/{session_id}/complete", response_model=ConversationSessionDetailOut, summary="Mark session complete")
+async def complete_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ConversationSession)
+        .options(selectinload(ConversationSession.messages))
+        .where(ConversationSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "SESSION_NOT_FOUND", "message": "Session not found.", "detail": None},
+        )
+    if not session.is_complete:
+        session.is_complete = True
+        session.completed_at = datetime.now(timezone.utc)
+    return session
+
+
+@router.post("/sessions/transcribe", response_model=TranscribeResponse, summary="Transcribe audio via Whisper")
+async def transcribe_audio(
+    body: TranscribeRequest,
+    current_user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    if settings.OPENAI_API_KEY:
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            audio_bytes = base64.b64decode(body.audio_base64)
+            ext = body.mime_type.split("/")[-1].replace("mpeg", "mp3").replace("x-m4a", "m4a")
+            audio_file = io.BytesIO(audio_bytes)
+            audio_file.name = f"audio.{ext}"
+            transcript = await client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+            )
+            return TranscribeResponse(transcript=transcript.text, confidence=1.0)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail={"error_code": "TRANSCRIPTION_ERROR", "message": str(exc), "detail": None},
+            )
+    return TranscribeResponse(transcript="", confidence=0.0)
+
+
+@router.get("/settings/llm", summary="Get LLM provider settings")
+async def get_llm_settings(
+    current_user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    return {"llm_provider": settings.LLM_PROVIDER, "ollama_url": settings.OLLAMA_BASE_URL}
+
+
+@router.put("/settings/llm", summary="Update LLM provider settings (runtime only)")
+async def update_llm_settings(
+    body: dict,
+    current_user: User = Depends(require_roles("admin")),
+):
+    # Runtime update not persisted; returns current effective settings
+    settings = get_settings()
+    return {"llm_provider": settings.LLM_PROVIDER, "ollama_url": settings.OLLAMA_BASE_URL}

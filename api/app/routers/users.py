@@ -116,6 +116,113 @@ async def delete_org(
                      ip_address=request.client.host if request.client else None)
 
 
+# ── Admin User Management ─────────────────────────────────────
+
+@router.get("/admin/users", response_model=list[dict], summary="List all users (admin)")
+async def admin_list_users(
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.role == "super_admin":
+        q = (
+            select(User, Organisation.name.label("org_name"))
+            .outerjoin(Organisation, User.org_id == Organisation.id)
+            .order_by(User.created_at.desc())
+        )
+    else:
+        q = (
+            select(User, Organisation.name.label("org_name"))
+            .outerjoin(Organisation, User.org_id == Organisation.id)
+            .where(User.org_id == current_user.org_id)
+            .order_by(User.created_at.desc())
+        )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "id": str(u.id),
+            "user_id": str(u.id),
+            "org_id": str(u.org_id) if u.org_id else None,
+            "org_name": org_name,
+            "email": u.email,
+            "first_name": u.first_name,
+            "last_name": u.last_name,
+            "role": u.role,
+            "is_active": u.is_active,
+            "avatar_url": u.avatar_url,
+            "last_login": u.last_login_at.isoformat() if u.last_login_at else None,
+            "created_at": u.created_at.isoformat(),
+        }
+        for u, org_name in rows
+    ]
+
+
+@router.post("/admin/users/invite", response_model=UserOut, status_code=status.HTTP_201_CREATED, summary="Invite user (admin)")
+async def admin_invite_user(
+    body: UserCreate,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.execute(select(User).where(User.email == body.email.lower()))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail={"error_code": "USER_EMAIL_EXISTS", "message": "Email already registered.", "detail": None},
+        )
+    org_id = body.org_id or current_user.org_id
+    user = User(
+        email=body.email.lower(),
+        hashed_password=None,
+        first_name=body.first_name,
+        last_name=body.last_name,
+        phone=body.phone,
+        org_id=org_id,
+        role=body.role,
+        otp_verified=False,
+    )
+    db.add(user)
+    await db.flush()
+    settings = get_settings()
+    invite_link = f"{settings.API_BASE_URL}/accept-invite?user_id={user.id}"
+    get_email_service().send_invite_email(
+        to_email=user.email,
+        first_name=user.first_name,
+        org_name="Your Organisation",
+        invite_link=invite_link,
+    )
+    await log_action(db, "user", user.id, "invited", current_user.id,
+                     after={"email": user.email, "role": user.role},
+                     ip_address=request.client.host if request.client else None)
+    return user
+
+
+@router.patch("/admin/users/{user_id}", response_model=UserOut, summary="Update user (admin)")
+async def admin_update_user(
+    user_id: uuid.UUID,
+    body: UserUpdate,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "USER_NOT_FOUND", "message": "User not found.", "detail": None},
+        )
+    if current_user.role != "super_admin" and current_user.org_id != user.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail={"error_code": "AUTH_INSUFFICIENT_ROLE", "message": "Access denied.", "detail": None},
+        )
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+    await log_action(db, "user", user.id, "updated", current_user.id,
+                     after=body.model_dump(exclude_unset=True),
+                     ip_address=request.client.host if request.client else None)
+    return user
+
+
 # ── Users ────────────────────────────────────────────────────
 
 @router.get("/users/me", response_model=UserOut, summary="Current user profile")

@@ -71,6 +71,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     avatar_url: Optional[str] = None
     role: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 # ── Auth ─────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ class TokenOut(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+    otp_pending: Optional[bool] = None
     user: Optional[UserOut] = None
 
 

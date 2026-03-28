@@ -27,11 +27,16 @@ class ConversationSessionOut(BaseModel):
     updated_at: datetime
 
 
+class ConversationSessionDetailOut(ConversationSessionOut):
+    """Extends ConversationSessionOut with messages (requires selectinload)."""
+    messages: list["ChatMessageOut"] = []
+
+
 # ── Chat Message ─────────────────────────────────────────────
 
 class ChatMessageCreate(BaseModel):
-    role: str
     content: str
+    mode: str = "chat"
 
 
 class ChatMessageOut(BaseModel):

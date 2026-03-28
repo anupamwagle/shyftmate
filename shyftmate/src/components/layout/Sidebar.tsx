@@ -43,7 +43,7 @@ const EMPLOYEE_NAV: NavItem[] = [
 ]
 
 const MANAGER_NAV: NavItem[] = [
-  { label: 'Reports', icon: BarChart3, href: '/reports' },
+  { label: 'Reports', icon: BarChart3, href: '/reports/labour-cost' },
 ]
 
 const ADMIN_NAV: NavItem[] = [

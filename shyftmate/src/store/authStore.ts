@@ -8,6 +8,7 @@ interface AuthState {
   refreshToken: string | null
   user: UserOut | null
   isOtpPending: boolean
+  pendingEmail: string | null
   // orgId override for super_admin org-switching; null means use user.org_id
   orgId: string | null
 
@@ -34,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       user: null,
       isOtpPending: false,
+      pendingEmail: null,
       orgId: null,
       role: null,
 
@@ -56,19 +58,21 @@ export const useAuthStore = create<AuthState>()(
             accessToken: data.access_token,
             refreshToken: data.refresh_token,
             isOtpPending: true,
+            pendingEmail: email,
           })
         } else {
           set({
             accessToken: data.access_token,
             refreshToken: data.refresh_token,
             isOtpPending: false,
+            pendingEmail: null,
           })
           await get().fetchUser()
         }
       },
 
       loginWithGoogle: async (idToken) => {
-        const { data } = await api.post<TokenResponse>('/auth/google', {
+        const { data } = await api.post<TokenResponse>('/auth/social/google', {
           id_token: idToken,
         })
         if (data.otp_pending) {
@@ -76,19 +80,21 @@ export const useAuthStore = create<AuthState>()(
             accessToken: data.access_token,
             refreshToken: data.refresh_token,
             isOtpPending: true,
+            pendingEmail: data.user?.email ?? null,
           })
         } else {
           set({
             accessToken: data.access_token,
             refreshToken: data.refresh_token,
             isOtpPending: false,
+            pendingEmail: null,
           })
           await get().fetchUser()
         }
       },
 
       loginWithApple: async (identityToken, authCode) => {
-        const { data } = await api.post<TokenResponse>('/auth/apple', {
+        const { data } = await api.post<TokenResponse>('/auth/social/apple', {
           identity_token: identityToken,
           authorization_code: authCode,
         })
@@ -97,29 +103,34 @@ export const useAuthStore = create<AuthState>()(
             accessToken: data.access_token,
             refreshToken: data.refresh_token,
             isOtpPending: true,
+            pendingEmail: data.user?.email ?? null,
           })
         } else {
           set({
             accessToken: data.access_token,
             refreshToken: data.refresh_token,
             isOtpPending: false,
+            pendingEmail: null,
           })
           await get().fetchUser()
         }
       },
 
       verifyOtp: async (code) => {
-        const { data } = await api.post('/auth/otp/verify', { code })
+        const { pendingEmail } = get()
+        const { data } = await api.post('/auth/otp/verify', { code, email: pendingEmail })
         set({
           accessToken: data.access_token,
           refreshToken: data.refresh_token,
           isOtpPending: false,
+          pendingEmail: null,
         })
         await get().fetchUser()
       },
 
       resendOtp: async () => {
-        await api.post('/auth/otp/resend')
+        const { pendingEmail } = get()
+        await api.post('/auth/otp/request', { email: pendingEmail, purpose: 'login' })
       },
 
       logout: () => {
@@ -128,6 +139,7 @@ export const useAuthStore = create<AuthState>()(
           refreshToken: null,
           user: null,
           isOtpPending: false,
+          pendingEmail: null,
           orgId: null,
           role: null,
         })
@@ -166,6 +178,7 @@ export const useAuthStore = create<AuthState>()(
         refreshToken: state.refreshToken,
         user: state.user,
         isOtpPending: state.isOtpPending,
+        pendingEmail: state.pendingEmail,
         orgId: state.orgId,
         role: state.role,
       }),

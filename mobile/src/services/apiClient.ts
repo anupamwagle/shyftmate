@@ -27,8 +27,54 @@ export interface TokenResponse {
 }
 
 export interface OtpVerifyRequest {
-  email: string;
   code: string;
+}
+
+// Internal shape returned by the API for chat sessions
+interface ApiChatMessageOut {
+  id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  token_count: number | null;
+  created_at: string;
+}
+
+interface ApiSessionOut {
+  id: string;
+  device_id: string;
+  agreement_id: string | null;
+  current_node: string;
+  is_complete: boolean;
+  session_type: string;
+  extracted_data: Record<string, unknown> | null;
+  messages?: ApiChatMessageOut[];  // present only in detail (GET/complete) responses
+  created_at: string;
+  updated_at: string;
+}
+
+interface ApiChatReply {
+  message: ApiChatMessageOut;
+  rule_delta: Record<string, unknown> | null;
+  session: ApiSessionOut;
+}
+
+function apiSessionToSession(apiSession: ApiSessionOut, extraMessages?: ApiChatMessageOut[], title?: string): Session {
+  const allMsgs = extraMessages ?? apiSession.messages ?? [];
+  return {
+    id: apiSession.id,
+    title: title ?? (apiSession.extracted_data?.agreement_name as string) ?? 'New Interview',
+    current_node: apiSession.current_node,
+    messages: allMsgs.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+      timestamp: m.created_at,
+    })),
+    extracted_data: apiSession.extracted_data ?? {},
+    status: apiSession.is_complete ? 'complete' : 'active',
+    created_at: apiSession.created_at,
+    updated_at: apiSession.updated_at,
+  };
 }
 
 export interface LoginRequest {
@@ -218,7 +264,7 @@ export const authApi = {
     apiClient.post<TokenResponse>('/auth/otp/verify', data),
 
   resendOtp: (email: string) =>
-    apiClient.post<{ message: string }>('/auth/otp/resend', { email }),
+    apiClient.post<{ message: string }>('/auth/otp/request', { email, purpose: 'login' }),
 
   me: () =>
     apiClient.get<import('../stores/authStore').UserOut>('/users/me'),
@@ -232,22 +278,44 @@ export const authApi = {
 // ---------------------------------------------------------------------------
 
 export const sessionApi = {
-  list: () => apiClient.get<Session[]>('/sessions'),
+  list: () => apiClient.get<Session[]>('/chat/sessions'),
 
-  create: (title?: string) =>
-    apiClient.post<Session>('/sessions', { title: title ?? 'New Interview' }),
+  create: async (title?: string) => {
+    const res = await apiClient.post<ApiChatReply>('/chat/sessions', {
+      device_id: 'mobile',
+      session_type: 'mobile',
+    });
+    return { data: apiSessionToSession(res.data.session, [res.data.message], title) };
+  },
 
-  get: (sessionId: string) =>
-    apiClient.get<Session>(`/sessions/${sessionId}`),
+  get: async (sessionId: string) => {
+    const res = await apiClient.get<ApiSessionOut>(`/chat/sessions/${sessionId}`);
+    return { data: apiSessionToSession(res.data) };
+  },
 
-  sendMessage: (data: SendMessageRequest) =>
-    apiClient.post<SendMessageResponse>('/sessions/message', data),
+  sendMessage: async (data: SendMessageRequest) => {
+    const res = await apiClient.post<ApiChatReply>(
+      `/chat/sessions/${data.session_id}/messages`,
+      { content: data.content, mode: data.mode },
+    );
+    return {
+      data: {
+        reply: res.data.message.content,
+        current_node: res.data.session.current_node,
+        node_advanced: true,
+        extracted_data: res.data.session.extracted_data ?? {},
+        session_status: res.data.session.is_complete ? 'complete' : 'active',
+      } as SendMessageResponse,
+    };
+  },
 
   transcribe: (data: TranscribeRequest) =>
-    apiClient.post<TranscribeResponse>('/sessions/transcribe', data),
+    apiClient.post<TranscribeResponse>('/chat/sessions/transcribe', data),
 
-  complete: (sessionId: string) =>
-    apiClient.post<Session>(`/sessions/${sessionId}/complete`),
+  complete: async (sessionId: string) => {
+    const res = await apiClient.post<ApiSessionOut>(`/chat/sessions/${sessionId}/complete`);
+    return { data: apiSessionToSession(res.data) };
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -455,7 +455,7 @@ http://localhost:8000/api/v1
 | Group | Routes | Notes |
 |---|---|---|
 | **Auth** | `POST /auth/login` `/refresh` `/logout` `/social/google` `/social/apple` `/otp/request` `/otp/verify` | OTP mandatory after social login |
-| **Orgs & Users** | `GET/POST /orgs` · `GET/PATCH/DELETE /orgs/{id}` · `GET/POST /orgs/{id}/users` · `GET/PATCH /users/{id}` · `GET /users/me` · `POST /orgs/switch` | Org context switch for super_admin |
+| **Orgs & Users** | `GET/POST /orgs` · `GET/PATCH/DELETE /orgs/{id}` · `GET/POST /orgs/{id}/users` · `GET/PATCH /users/{id}` · `GET /users/me` · `POST /orgs/switch` · `GET /admin/users` · `POST /admin/users/invite` · `PATCH /admin/users/{id}` | Org context switch for super_admin |
 | **Locations** | `GET/POST /orgs/{id}/locations` · `PATCH/DELETE /locations/{id}` | |
 | **Agreements** | `GET/POST /agreements` · `GET/PATCH /agreements/{id}` · `/history` · `/activate` · `/rollback/{ver}` | Append-only version chain |
 | **Emp Types** | `GET/POST /agreements/{id}/employee-types` · `GET/PATCH/DELETE /agreements/{id}/employee-types/{et}` | |
@@ -465,13 +465,13 @@ http://localhost:8000/api/v1
 | **Wage Table** | `GET/POST /agreements/{id}/wage-table` | |
 | **Kronos Config** | `GET/POST /agreements/{id}/kronos-config` · `GET/PUT /agreements/{id}/recurring-allowances` | |
 | **Paycodes** | `GET/POST /paycodes` | Global Kronos library |
-| **Chat** | `POST /chat/sessions` · `GET/PUT /chat/sessions/{id}` · `POST /chat/sessions/{id}/messages` | Rate limited: 10/min |
+| **Chat** | `POST /chat/sessions` · `GET/PUT /chat/sessions/{id}` · `POST /chat/sessions/{id}/messages` · `POST /chat/sessions/{id}/complete` · `POST /chat/sessions/transcribe` · `GET/PUT /chat/settings/llm` | Rate limited: 10/min; transcribe uses OpenAI Whisper if `OPENAI_API_KEY` is set |
 | **Telephony** | `POST /telephony/inbound` · `WS /telephony/stream/{id}` · `POST /telephony/status` | SignalWire webhook + media stream |
-| **Prospects** | `GET /prospects` · `GET/PATCH /prospects/{id}` · `POST /prospects/{id}/provision` | |
+| **Prospects** | `GET /telephony/prospects` · `GET/PATCH /telephony/prospects/{id}` · `POST /telephony/prospects/{id}/provision` | |
 | **Scheduling** | `GET/POST /rosters` · `GET/PATCH /rosters/{id}` · `POST /rosters/{id}/publish` · `GET/POST /rosters/{id}/shifts` · `PATCH /shifts/{id}` · `GET/POST /shift-swaps` · `/approve` `/reject` | |
 | **T&A** | `POST /clock` · `GET /clock/live` · `GET/POST /timesheets` · `GET/PATCH /timesheets/{id}` · `/submit` `/approve` | Clock rate limited: 2/min |
 | **Leave** | `GET/POST /leave-types` · `GET /leave-balances` · `GET/POST /leave-requests` · `/approve` `/reject` `/cancel` | |
-| **Communication** | `GET/POST /announcements` · `GET/POST /messages` · `GET/POST/PATCH/DELETE /message-groups` | |
+| **Communication** | `GET/POST /announcements` · `GET/POST /messages` · `GET/POST/PATCH/DELETE /message-groups` · `GET /messages/channels` · `GET/POST /messages/channels/{id}/messages` | Channels are backed by MessageGroups; a "general" channel is auto-created |
 | **Reports** | `GET /reports/labour-cost` `/overtime` `/leave-liability` `/award-compliance` | |
 | **Export** | `GET /export/platforms` · `POST /export/trigger` · `GET /export/jobs` · `GET /export/jobs/{id}` | |
 | **Audit** | `GET /audit` | Filterable, paginated |
@@ -622,6 +622,7 @@ cp .env.example .env.dev
 | `ANTHROPIC_API_KEY` | Required if `LLM_PROVIDER=anthropic` | |
 | `OLLAMA_BASE_URL` | Default: `http://localhost:11434` | |
 | `OLLAMA_MODEL` | Default: `llama3` | |
+| `OPENAI_API_KEY` | Optional — enables Whisper audio transcription in the mobile app | |
 
 ### Social Auth
 

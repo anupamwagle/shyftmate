@@ -63,7 +63,7 @@ function ProspectDetail({
 
   const updateMutation = useMutation({
     mutationFn: (data: { status?: string; admin_notes?: string }) =>
-      api.patch(`/prospects/${prospect.id}`, data).then((r) => r.data),
+      api.patch(`/telephony/prospects/${prospect.id}`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['prospects'] })
       toast.success('Prospect updated')
@@ -73,7 +73,7 @@ function ProspectDetail({
 
   const provisionMutation = useMutation({
     mutationFn: () =>
-      api.post(`/prospects/${prospect.id}/provision`).then((r) => r.data),
+      api.post(`/telephony/prospects/${prospect.id}/provision`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['prospects'] })
       toast.success('Account provisioned — invite email sent!')
@@ -187,7 +187,7 @@ export default function ProspectsPage() {
   const { data: prospects = [], isLoading } = useQuery<Prospect[]>({
     queryKey: ['prospects', statusFilter],
     queryFn: () =>
-      api.get('/prospects', { params: { status: statusFilter || undefined } }).then((r) => r.data),
+      api.get('/telephony/prospects', { params: { status: statusFilter || undefined } }).then((r) => r.data),
   })
 
   const columns = [

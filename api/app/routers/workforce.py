@@ -655,6 +655,118 @@ async def delete_message_group(
     await db.commit()
 
 
+# ── Messages Channels (backed by MessageGroups) ───────────────
+
+@router.get("/messages/channels", summary="List message channels")
+async def list_message_channels(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.org_id is None:
+        return []
+    result = await db.execute(
+        select(MessageGroup)
+        .where(MessageGroup.org_id == current_user.org_id)
+        .order_by(MessageGroup.name)
+    )
+    groups = result.scalars().all()
+
+    # Ensure a "general" channel always exists
+    if not groups:
+        general = MessageGroup(
+            org_id=current_user.org_id,
+            name="general",
+            member_ids=[],
+        )
+        db.add(general)
+        await db.flush()
+        groups = [general]
+
+    channels = []
+    for g in groups:
+        # Get last message for this channel
+        last_msg_result = await db.execute(
+            select(Message)
+            .where(Message.group_id == g.id)
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        last_msg = last_msg_result.scalar_one_or_none()
+        channels.append({
+            "id": str(g.id),
+            "name": g.name,
+            "type": "general" if g.name == "general" else "team",
+            "unread_count": 0,
+            "last_message": last_msg.body if last_msg else None,
+            "last_message_at": last_msg.created_at.isoformat() if last_msg else None,
+        })
+    return channels
+
+
+@router.get("/messages/channels/{channel_id}/messages", summary="List messages in channel")
+async def list_channel_messages(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    msgs_result = await db.execute(
+        select(Message, User.first_name, User.last_name, User.avatar_url)
+        .join(User, Message.sender_id == User.id)
+        .where(Message.group_id == channel_id)
+        .order_by(Message.created_at.asc())
+        .limit(200)
+    )
+    rows = msgs_result.all()
+    return [
+        {
+            "id": str(msg.id),
+            "org_id": str(msg.org_id),
+            "sender_id": str(msg.sender_id),
+            "sender_name": f"{first_name} {last_name}".strip(),
+            "sender_avatar": avatar_url,
+            "content": msg.body,
+            "channel": str(channel_id),
+            "created_at": msg.created_at.isoformat(),
+            "is_read": msg.read_at is not None,
+        }
+        for msg, first_name, last_name, avatar_url in rows
+    ]
+
+
+@router.post("/messages/channels/{channel_id}/messages", status_code=201, summary="Send message to channel")
+async def send_channel_message(
+    channel_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.org_id is None:
+        raise HTTPException(status_code=400, detail={"error_code": "NO_ORG", "message": "User must belong to an organisation.", "detail": None})
+    content = body.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=422, detail={"error_code": "EMPTY_MESSAGE", "message": "Message content cannot be empty.", "detail": None})
+    message = Message(
+        org_id=current_user.org_id,
+        sender_id=current_user.id,
+        group_id=channel_id,
+        body=content,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(message)
+    await db.flush()
+    return {
+        "id": str(message.id),
+        "org_id": str(message.org_id),
+        "sender_id": str(message.sender_id),
+        "sender_name": f"{current_user.first_name} {current_user.last_name}".strip(),
+        "sender_avatar": current_user.avatar_url,
+        "content": message.body,
+        "channel": str(channel_id),
+        "created_at": message.created_at.isoformat(),
+        "is_read": False,
+    }
+
+
 # ── Reports ──────────────────────────────────────────────────
 
 @router.get("/reports/labour-cost", summary="Labour cost report")

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
+    OPENAI_API_KEY: str = ""
 
     # Google OAuth2
     GOOGLE_CLIENT_ID: str = ""

@@ -25,6 +25,7 @@ export interface TokenResponse {
   refresh_token: string
   token_type: string
   otp_pending?: boolean
+  user?: UserOut
 }
 
 export interface OtpVerifyResponse {

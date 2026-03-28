@@ -23,3 +23,4 @@ email-validator>=2.1.0
 python-dotenv>=1.0.0
 pyotp>=2.9.0
 signalwire>=2.0.0
+openai>=1.0.0

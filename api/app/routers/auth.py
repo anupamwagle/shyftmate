@@ -124,6 +124,7 @@ async def login(
     return TokenOut(
         access_token=access_token,
         refresh_token=refresh_token,
+        otp_pending=not user.otp_verified,
         user=UserOut.model_validate(user),
     )
 
@@ -261,6 +262,7 @@ async def google_auth(
     return TokenOut(
         access_token=access_token,
         refresh_token=refresh_token,
+        otp_pending=not user.otp_verified,
         user=UserOut.model_validate(user),
     )
 
@@ -343,6 +345,7 @@ async def apple_auth(
     return TokenOut(
         access_token=access_token,
         refresh_token=refresh_token,
+        otp_pending=not user.otp_verified,
         user=UserOut.model_validate(user),
     )
 
