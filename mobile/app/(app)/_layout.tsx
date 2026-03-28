@@ -1,17 +1,7 @@
-import React, { useEffect } from 'react';
-import { Stack, useRouter } from 'expo-router';
-import { useAuthStore } from '../../src/stores/authStore';
+import React from 'react';
+import { Stack } from 'expo-router';
 
 export default function AppLayout() {
-  const router = useRouter();
-  const { accessToken, user } = useAuthStore();
-
-  useEffect(() => {
-    if (!accessToken || !user) {
-      router.replace('/(auth)/login');
-    }
-  }, [accessToken, user]);
-
   return (
     <Stack
       screenOptions={{

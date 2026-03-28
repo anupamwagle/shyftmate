@@ -104,6 +104,7 @@ function createApiClient(): AxiosInstance {
     timeout: 30_000,
     headers: {
       'Content-Type': 'application/json',
+      'Bypass-Tunnel-Reminder': 'true',
     },
   });
 

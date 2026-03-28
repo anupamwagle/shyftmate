@@ -26,6 +26,7 @@ import { voiceService } from '../../src/services/voiceService';
 import { sttService } from '../../src/services/sttService';
 import { persistenceService } from '../../src/services/persistenceService';
 import { sessionApi } from '../../src/services/apiClient';
+import { useAuthStore } from '../../src/stores/authStore';
 
 import { MicButton } from '../../src/components/MicButton';
 import { ChatBubble } from '../../src/components/ChatBubble';
@@ -37,6 +38,8 @@ import { Colors, Spacing, FontSize, BorderRadius, Shadow } from '../../src/const
 
 export default function ConversationScreen() {
   const router = useRouter();
+  const { accessToken, user } = useAuthStore();
+  const isAuthenticated = !!(accessToken && user);
   const [state, send] = useMachine(conversationMachine);
 
   const [chatInput, setChatInput] = useState('');
@@ -59,11 +62,13 @@ export default function ConversationScreen() {
   const appStateRef = useRef(AppState.currentState);
 
   // ---------------------------------------------------------------------------
-  // Session init — load from storage or create new
+  // Session init — only when authenticated
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    initSession();
-  }, []);
+    if (isAuthenticated) {
+      initSession();
+    }
+  }, [isAuthenticated]);
 
   const initSession = async () => {
     try {
@@ -363,17 +368,26 @@ export default function ConversationScreen() {
           )}
         </View>
 
-        <TouchableOpacity
-          onPress={() => router.push('/(app)/settings')}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          style={styles.headerButton}
-        >
-          <MaterialCommunityIcons
-            name="cog-outline"
-            size={22}
-            color={Colors.text.primary}
-          />
-        </TouchableOpacity>
+        {isAuthenticated ? (
+          <TouchableOpacity
+            onPress={() => router.push('/(app)/settings')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.headerButton}
+          >
+            <MaterialCommunityIcons
+              name="cog-outline"
+              size={22}
+              color={Colors.text.primary}
+            />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => router.push('/(auth)/login')}
+            style={styles.signInButton}
+          >
+            <Text style={styles.signInButtonText}>Sign in</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Progress indicator */}
@@ -392,6 +406,8 @@ export default function ConversationScreen() {
           onMicPress={handleMicPress}
           onToggleMode={() => send({ type: 'TOGGLE_MODE' })}
           onEndSession={handleEndSession}
+          onSignIn={() => router.push('/(auth)/login')}
+          isAuthenticated={isAuthenticated}
           error={error}
         />
       ) : (
@@ -422,6 +438,8 @@ interface VoiceModeBodyProps {
   onMicPress: () => void;
   onToggleMode: () => void;
   onEndSession: () => void;
+  onSignIn: () => void;
+  isAuthenticated: boolean;
   error: string | null;
 }
 
@@ -434,13 +452,33 @@ function VoiceModeBody({
   onMicPress,
   onToggleMode,
   onEndSession,
+  onSignIn,
+  isAuthenticated,
   error,
 }: VoiceModeBodyProps) {
   return (
     <View style={styles.voiceBody}>
       {/* AI message bubble */}
       <View style={styles.voiceBubbleArea}>
-        {lastAssistantMessage ? (
+        {!isAuthenticated ? (
+          <View style={styles.voiceEmptyState}>
+            <MaterialCommunityIcons
+              name="robot-outline"
+              size={48}
+              color={Colors.brand[300]}
+            />
+            <Text style={styles.voiceEmptyTitle}>Welcome to Gator</Text>
+            <Text style={styles.voiceEmptyText}>
+              Sign in to start your award rule interview
+            </Text>
+            <TouchableOpacity
+              style={styles.signInPromptButton}
+              onPress={onSignIn}
+            >
+              <Text style={styles.signInPromptButtonText}>Sign in</Text>
+            </TouchableOpacity>
+          </View>
+        ) : lastAssistantMessage ? (
           <View style={styles.voiceAiBubble}>
             <View style={styles.voiceAiAvatar}>
               <MaterialCommunityIcons
@@ -510,15 +548,17 @@ function VoiceModeBody({
       )}
 
       {/* Mic button */}
-      <View style={styles.micArea}>
-        <MicButton
-          isRecording={isRecording}
-          isLoading={isLoading && !isRecording}
-          onPress={onMicPress}
-          disabled={isSpeaking || isLoading}
-          size={88}
-        />
-      </View>
+      {isAuthenticated && (
+        <View style={styles.micArea}>
+          <MicButton
+            isRecording={isRecording}
+            isLoading={isLoading && !isRecording}
+            onPress={onMicPress}
+            disabled={isSpeaking || isLoading}
+            size={88}
+          />
+        </View>
+      )}
 
       {/* Bottom controls */}
       <View style={styles.bottomControls}>
@@ -750,10 +790,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.md,
   },
+  voiceEmptyTitle: {
+    fontSize: FontSize.xl,
+    fontFamily: 'Inter_700Bold',
+    color: Colors.text.primary,
+    textAlign: 'center',
+  },
   voiceEmptyText: {
     fontSize: FontSize.base,
     color: Colors.gray[400],
     fontFamily: 'Inter_400Regular',
+    textAlign: 'center',
+  },
+  signInButton: {
+    backgroundColor: Colors.brand[600],
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.md,
+  },
+  signInButtonText: {
+    color: Colors.white,
+    fontSize: FontSize.sm,
+    fontFamily: 'Inter_600SemiBold',
+  },
+  signInPromptButton: {
+    backgroundColor: Colors.brand[600],
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    marginTop: Spacing.sm,
+    ...Shadow.md,
+  },
+  signInPromptButtonText: {
+    color: Colors.white,
+    fontSize: FontSize.base,
+    fontFamily: 'Inter_600SemiBold',
   },
   speakingIndicator: {
     flexDirection: 'row',

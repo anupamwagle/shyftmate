@@ -154,7 +154,7 @@ C:\Gator\
 │   ├── Dockerfile
 │   └── pyproject.toml
 │
-├── mobile/                       # Expo SDK 51 — Gator BA mobile app
+├── mobile/                       # Expo SDK 54 — Gator BA mobile app
 │   ├── app/
 │   │   ├── _layout.tsx           # Root layout (Inter font, QueryClient, SplashScreen)
 │   │   ├── (auth)/
@@ -257,13 +257,65 @@ C:\Gator\
 | Tool | Version | Notes |
 |---|---|---|
 | Docker Desktop | Latest | Runs PostgreSQL, pgAdmin, Redis, and the API |
-| Node.js | 20 LTS+ | Shyftmate web portal + Gator mobile app (Node 18 not supported by Expo SDK 54) |
-| npm | 9+ | Package management |
-| Expo Go app | Latest | Mobile testing on iOS/Android device |
+| Node.js | **20 LTS** | Node 18 is **not** supported by Expo SDK 54. Install via nvm (see below). |
+| npm | 9+ | Comes with Node 20 |
+| Expo Go app | **SDK 54** | Must match the project SDK — install from App Store / Play Store |
 
 Python is **not required** on your host — the API runs inside Docker (`python:3.11-slim`).
 
-**Running on Windows?** Use WSL2 (Ubuntu). All `bash` and `docker compose` commands should be run from within WSL.
+### Windows / WSL2 setup
+
+All `bash` and `docker compose` commands run inside **WSL2 (Ubuntu)**. On a new Windows machine:
+
+1. Install WSL2 + Ubuntu from Microsoft Store or `wsl --install`
+2. Install Docker Desktop and enable WSL2 integration (Settings → Resources → WSL Integration → Ubuntu ✅)
+3. Enable **mirrored networking** so WSL and Windows share the same IP (required for phone → API access):
+
+   Create or edit `C:\Users\<YourName>\.wslconfig`:
+   ```ini
+   [wsl2]
+   networkingMode=mirrored
+   ```
+   Then restart WSL: `wsl --shutdown` and reopen your Ubuntu terminal.
+
+4. Install Node 20 via nvm inside WSL:
+   ```bash
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+   source ~/.bashrc   # or restart terminal
+   nvm install 20
+   nvm use 20
+   node -v   # should print v20.x.x
+   ```
+
+5. Set up your SSH key for GitHub (one-time):
+   ```bash
+   # Generate key (if you don't have one)
+   ssh-keygen -t ed25519 -C "your@email.com"
+   cat ~/.ssh/id_ed25519.pub   # copy this and add to GitHub → Settings → SSH Keys
+
+   # Test it works
+   ssh -T git@github.com
+   ```
+
+### Phone → API access (Windows portproxy)
+
+When testing the mobile app on a physical device, the phone needs to reach the API. With WSL2 mirrored networking the API is reachable at your Windows machine's LAN IP (e.g. `192.168.x.x:8000`). To confirm:
+
+```bash
+# In Windows cmd/PowerShell — find your Wi-Fi IPv4
+ipconfig | findstr /i "IPv4"
+```
+
+If the phone still cannot reach the API (e.g. Windows Firewall is blocking port 8000), run once in an **elevated PowerShell**:
+
+```powershell
+# Allow inbound on port 8000 from all network profiles
+New-NetFirewallRule -DisplayName "Gator API 8000" `
+  -Direction Inbound -Protocol TCP -LocalPort 8000 `
+  -Action Allow -Profile Any
+```
+
+This is **persistent** — you only need to do it once per machine. After this, `http://<your-windows-ip>:8000/docs` should open in the phone's browser.
 
 **Optional — for telephony:**
 - [SignalWire account](https://signalwire.com) (~$5 free dev credit, AU numbers available)
@@ -278,6 +330,7 @@ Python is **not required** on your host — the API runs inside Docker (`python:
 ### 1. Clone and set up environment
 
 ```bash
+# Clone via SSH (set up your SSH key first — see Prerequisites above)
 git clone git@github.com:anupamwagle/shyftmate.git
 cd shyftmate
 
@@ -351,28 +404,38 @@ npm run dev
 ### 5. Start the Gator mobile app
 
 ```bash
+# Make sure you're on Node 20 (not 18)
+node -v   # must be v20.x.x — if not: nvm use 20
+
 cd mobile
-npm install --legacy-peer-deps   # --legacy-peer-deps required for Expo 51 peer dep conflicts
+
+# Install deps — --legacy-peer-deps is required due to Expo SDK 54 peer dep constraints
+npm install --legacy-peer-deps
 
 # Generate placeholder app assets (required by Expo on first run)
 node scripts/create_assets.js
 ```
 
-**Running on a physical device via WSL?** The device cannot reach WSL's internal IP directly. Use tunnel mode:
+**Create `mobile/.env`** with your Windows machine's LAN IP (run `ipconfig` in Windows cmd to find it):
+
+```env
+EXPO_PUBLIC_API_URL=http://<your-windows-lan-ip>:8000/api/v1
+# Example: EXPO_PUBLIC_API_URL=http://192.168.1.50:8000/api/v1
+```
+
+**Start Metro bundler:**
 
 ```bash
+# WSL2 + physical device (recommended) — uses a tunnel so your phone can reach the Metro bundler
 npx expo start --tunnel
+
+# Emulator (Android Studio / iOS Simulator) — plain start is fine
+npm start
 ```
 
-Or if you know your Windows host IP (run `ipconfig` in Windows cmd, find Wi-Fi IPv4):
+> **WSL2 mirrored networking note:** Even with `networkingMode=mirrored`, the Metro bundler port (8081) needs the `--tunnel` flag for physical devices because Expo advertises an IP that phones can't reach from WSL. The API port (8000) works fine via Windows LAN IP without a tunnel.
 
-```bash
-REACT_NATIVE_PACKAGER_HOSTNAME=<your-windows-ip> npx expo start --host lan
-```
-
-For emulators (Android Studio / iOS Simulator), plain `npm start` works fine.
-
-Scan the QR code with **Expo Go** on your phone, or press:
+Scan the QR code with **Expo Go** (SDK 54) on your phone, or press:
 - `i` → iOS simulator
 - `a` → Android emulator
 
@@ -476,13 +539,17 @@ VITE_API_URL=https://api.yourdomain.com/api/v1 npm run build
 
 A **voice-first, single-purpose tool** for BAs to configure award rules through an AI conversation.
 
+### UX flow
+
+The app opens **directly into the conversation** — no login required. Sign-in is optional and accessible via the header button. Once signed in, sessions are saved to the server and can be resumed across devices.
+
 ### Screens
 
 | Screen | Description |
 |---|---|
-| Login | Email/password, Google OAuth, Apple Sign-In |
+| Conversation | Voice mode (pulsing mic) + chat mode (toggle) — available immediately without login |
+| Login | Email/password, Google OAuth, Apple Sign-In — accessible from the "Sign in" button in the header |
 | OTP | 6-digit auto-advancing input, 10-min countdown, resend |
-| Conversation | Voice mode (pulsing mic) + chat mode (toggle) |
 | Settings | Female voice picker, LLM provider, Ollama URL |
 
 ### Conversation state machine (17 nodes)
@@ -906,4 +973,19 @@ docker exec gator_api alembic current
 
 # Tail alembic history
 docker exec gator_api alembic history --verbose
+
+# Switch Node version (WSL)
+nvm use 20
+
+# Check WSL networking mode
+cat /etc/wsl.conf 2>/dev/null || cat /proc/version
+
+# Restart WSL (run in Windows PowerShell, closes all WSL terminals)
+wsl --shutdown
+
+# Allow port 8000 through Windows Firewall for phone access (run once, elevated PowerShell)
+New-NetFirewallRule -DisplayName "Gator API 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Any
+
+# Start Expo with tunnel (physical device on WSL)
+cd mobile && npx expo start --tunnel
 ```
