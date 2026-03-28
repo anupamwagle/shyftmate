@@ -38,9 +38,21 @@ async def lifespan(app: FastAPI):
         print("[STARTUP WARNING] LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set", file=sys.stderr)
 
     print(f"[STARTUP] Gator API starting — ENV={s.ENV}, LLM={s.LLM_PROVIDER}")
-    async for db in get_db():
-        await run_seed(db)
-        break
+    try:
+        async for db in get_db():
+            await run_seed(db)
+            break
+    except Exception as exc:
+        import sys
+        print(
+            f"[STARTUP ERROR] Seed failed — database tables may not exist.\n"
+            f"  Run: cd api && alembic upgrade head\n"
+            f"  Detail: {exc}",
+            file=sys.stderr,
+        )
+        raise RuntimeError(
+            "Database not initialised. Run 'alembic upgrade head' first."
+        ) from exc
     yield
     print("[SHUTDOWN] Gator API stopping")
 
