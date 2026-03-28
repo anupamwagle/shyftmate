@@ -35,22 +35,6 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: gator_ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
   api:
     build:
       context: ./api
@@ -61,6 +45,8 @@ services:
       - "8000:8000"
     env_file:
       - .env.dev
+    environment:
+      - OLLAMA_BASE_URL=http://192.168.4.150/v1
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,4 +57,3 @@ services:
 volumes:
   postgres_data:
   pgadmin_data:
-  ollama_data:

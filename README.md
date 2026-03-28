@@ -264,8 +264,7 @@ Python is **not required** on your host — the API runs inside Docker (`python:
 - [SignalWire account](https://signalwire.com) (~$5 free dev credit, AU numbers available)
 - AWS account (Transcribe + Polly + SES)
 
-**Optional — for local AI:**
-- GPU-enabled machine (Ollama works on CPU but is slow without one)
+**Ollama** runs externally at `http://192.168.4.150/v1` — no local GPU required.
 
 ---
 
@@ -306,18 +305,15 @@ SES_FROM_EMAIL=       # must be SES-verified
 ### 2. Start all services
 
 ```bash
-# Builds the API image and starts postgres, pgadmin, ollama, and the API
+# Builds the API image and starts postgres, pgadmin, and the API
 docker compose up --build -d
-
-# Pull a local LLM (one-time, ~4 GB) — skip if using Anthropic
-docker exec gator_ollama ollama pull llama3
 ```
 
 Services:
 - **API**: http://localhost:8000 (Swagger UI: http://localhost:8000/docs)
 - **PostgreSQL**: `localhost:5432`
 - **pgAdmin**: http://localhost:5050 (`admin@gator.com` / `admin`)
-- **Ollama**: http://localhost:11434
+- **Ollama**: external at `http://192.168.4.150/v1`
 
 ### 3. Run migrations and seed the database
 
@@ -684,24 +680,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 Uses `claude-sonnet-4-5`. Structured rule extraction via `<rule_delta>` XML tags in responses.
 
-### Ollama (local dev — free, no key needed)
+### Ollama (external host)
 
 ```env
 LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_BASE_URL=http://192.168.4.150/v1
 OLLAMA_MODEL=llama3
 ```
 
-```bash
-# Pull model once (via Docker)
-docker exec gator_ollama ollama pull llama3
-
-# Or for a smaller/faster model
-docker exec gator_ollama ollama pull mistral
-
-# Check available models
-docker exec gator_ollama ollama list
-```
+Ollama runs on an external machine at `192.168.4.150`. The `OLLAMA_BASE_URL` is set directly in `docker-compose.yml` and overrides `.env.dev`.
 
 ---
 
@@ -875,9 +862,6 @@ psql postgresql://gator:gator_dev_password@localhost:5432/gator_dev
 
 # Reset dev database (drops + recreates + re-runs seeds)
 bash db/scripts/reset.sh
-
-# List all available Ollama models
-docker exec gator_ollama ollama list
 
 # Run Expo on iOS simulator
 cd mobile && npx expo run:ios
