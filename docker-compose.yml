@@ -48,35 +48,48 @@ services:
       retries: 5
 
   # ── faster-whisper STT sidecar ───────────────────────────────────────────────
-  # GPU-accelerated Whisper running as an OpenAI-compatible API on port 9000.
-  # The model (~1.5 GB) auto-downloads on first start and is cached in the
-  # whisper_models volume so it survives container rebuilds.
+  # Whisper running as an OpenAI-compatible API on port 9000.
+  # Model (~1.5 GB) auto-downloads on first start, cached in whisper_models volume.
   #
-  # Requires: NVIDIA drivers on Windows + Docker Desktop (WSL2 backend).
-  # No extra setup needed — Docker Desktop enables WSL2 CUDA automatically.
+  # Currently: CPU mode (int8) — works out of the box, no driver setup needed.
+  # For GPU: see instructions below to enable CUDA (faster, uses ~1.5 GB VRAM).
   #
-  # Switch to it: set STT_PROVIDER=local in .env.dev
-  # Use CPU instead: change image tag to latest-cpu and remove the deploy block
+  # ── To enable GPU (RTX 3070 Ti) ──────────────────────────────────────────
+  # Run these commands in WSL2, then restart Docker Desktop:
+  #
+  #   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+  #     sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  #   curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  #     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  #     sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  #   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+  #   sudo nvidia-ctk runtime configure --runtime=docker
+  #
+  # Then change:
+  #   image: fedirz/faster-whisper-server:latest-cuda
+  #   WHISPER__DEVICE: cuda
+  # And uncomment the deploy block below.
   whisper:
-    image: fedirz/faster-whisper-server:latest-cuda
+    image: fedirz/faster-whisper-server:latest-cpu
     container_name: gator_whisper
     restart: unless-stopped
     ports:
       - "9000:8000"
     environment:
       WHISPER__MODEL: large-v3-turbo
-      WHISPER__DEVICE: cuda
+      WHISPER__DEVICE: cpu
       WHISPER__LANGUAGE: en
       WHISPER__BEAM_SIZE: "5"
     volumes:
       - whisper_models:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Uncomment when nvidia-container-toolkit is installed in WSL2:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
   api:
     build:
