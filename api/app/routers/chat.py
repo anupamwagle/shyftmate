@@ -259,6 +259,54 @@ async def transcribe_audio(
         )
 
 
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "nova"   # nova or shimmer — both natural female voices
+
+
+class TTSResponse(BaseModel):
+    audio_base64: str
+    voice: str
+    format: str = "mp3"
+
+
+@router.post("/tts", response_model=TTSResponse, summary="Text-to-speech via OpenAI TTS (nova voice)")
+async def text_to_speech(
+    body: TTSRequest,
+    current_user: User = Depends(get_current_user),
+):
+    settings = get_settings()
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "TTS_NOT_CONFIGURED",
+                "message": "OpenAI TTS is not configured. Add OPENAI_API_KEY to .env.dev.",
+                "detail": None,
+            },
+        )
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        log.info("[TTS] voice=%s text_len=%d", body.voice, len(body.text))
+        response = await client.audio.speech.create(
+            model="tts-1",
+            voice=body.voice,
+            input=body.text,
+            response_format="mp3",
+        )
+        audio_bytes = response.content
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        log.info("[TTS] Done — %d audio bytes", len(audio_bytes))
+        return TTSResponse(audio_base64=audio_b64, voice=body.voice)
+    except Exception as exc:
+        log.error("[TTS] Error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"error_code": "TTS_ERROR", "message": str(exc), "detail": None},
+        )
+
+
 @router.get("/settings/llm", summary="Get LLM provider settings")
 async def get_llm_settings(
     current_user: User = Depends(get_current_user),

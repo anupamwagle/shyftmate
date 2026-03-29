@@ -3,35 +3,51 @@ import * as FileSystem from 'expo-file-system';
 import { sessionApi } from './apiClient';
 
 // ---------------------------------------------------------------------------
-// STTService — Speech-to-text via expo-av recording + backend Whisper API
+// STTService — Speech-to-text via expo-av + Whisper API
+// Includes Voice Activity Detection (VAD): auto-stops on silence
 // ---------------------------------------------------------------------------
+
+const VAD_SILENCE_THRESHOLD_DB = -38;  // dB — below = silence
+const VAD_SILENCE_DURATION_MS  = 1800; // stop after 1.8 s of silence
+const VAD_MIN_SPEECH_MS        = 800;  // don't stop within first 800 ms
 
 export class STTService {
   private recording: Audio.Recording | null = null;
-  private isRecording: boolean = false;
+  private isRecording = false;
+  private recordingStartTime = 0;
+
   private onLevelChange: ((level: number) => void) | null = null;
-  private levelInterval: ReturnType<typeof setInterval> | null = null;
+  private onAutoStop: (() => void) | null = null;
+
+  private vadEnabled = true;
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private hasSpeechStarted = false;
+
+  // ── Permissions ─────────────────────────────────────────────────────────
 
   async requestPermissions(): Promise<boolean> {
     const { status } = await Audio.requestPermissionsAsync();
     return status === 'granted';
   }
 
+  // ── Recording ────────────────────────────────────────────────────────────
+
   async startRecording(): Promise<void> {
     if (this.isRecording) return;
 
     const granted = await this.requestPermissions();
-    if (!granted) {
-      throw new Error('Microphone permission not granted');
-    }
+    if (!granted) throw new Error('Microphone permission not granted');
 
-    // Configure audio mode for recording
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
     });
+
+    this.silenceTimer = null;
+    this.hasSpeechStarted = false;
+    this.recordingStartTime = Date.now();
 
     const { recording } = await Audio.Recording.createAsync(
       {
@@ -60,13 +76,36 @@ export class STTService {
         isMeteringEnabled: true,
       },
       (status) => {
-        if (status.isRecording && status.metering !== undefined) {
-          // Normalize metering from dB (-160 to 0) to 0–1
+        if (!status.isRecording) return;
+
+        if (status.metering !== undefined) {
+          // Normalise dB (-160..0) to 0..1 for waveform display
           const normalized = Math.max(0, (status.metering + 160) / 160);
           this.onLevelChange?.(normalized);
+
+          // ── VAD ────────────────────────────────────────────────────────
+          if (this.vadEnabled && this.onAutoStop) {
+            const elapsed = Date.now() - this.recordingStartTime;
+
+            if (status.metering > VAD_SILENCE_THRESHOLD_DB) {
+              // Speech detected — cancel any pending silence timer
+              this.hasSpeechStarted = true;
+              this._clearSilenceTimer();
+            } else if (this.hasSpeechStarted && elapsed >= VAD_MIN_SPEECH_MS) {
+              // Silence after speech — start countdown
+              if (!this.silenceTimer) {
+                this.silenceTimer = setTimeout(() => {
+                  this.silenceTimer = null;
+                  if (this.isRecording) {
+                    this.onAutoStop?.();
+                  }
+                }, VAD_SILENCE_DURATION_MS);
+              }
+            }
+          }
         }
       },
-      100, // Update interval ms
+      100, // metering update every 100 ms
     );
 
     this.recording = recording;
@@ -77,15 +116,14 @@ export class STTService {
     if (!this.isRecording || !this.recording) return null;
 
     this.isRecording = false;
-    this.clearLevelInterval();
+    this._clearSilenceTimer();
 
     try {
       await this.recording.stopAndUnloadAsync();
     } catch (err) {
-      console.warn('[STTService] Error stopping recording:', err);
+      console.warn('[STTService] Stop error:', err);
     }
 
-    // Restore audio mode to playback
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
@@ -93,74 +131,70 @@ export class STTService {
 
     const uri = this.recording.getURI();
     this.recording = null;
-
     if (!uri) return null;
 
     try {
-      return await this.transcribeAudio(uri);
+      return await this._transcribeAudio(uri);
     } finally {
-      // Clean up temporary file
       FileSystem.deleteAsync(uri, { idempotent: true }).catch(console.warn);
     }
   }
 
   async cancelRecording(): Promise<void> {
     if (!this.isRecording || !this.recording) return;
-
     this.isRecording = false;
-    this.clearLevelInterval();
-
-    try {
-      await this.recording.stopAndUnloadAsync();
-    } catch {}
-
+    this._clearSilenceTimer();
+    try { await this.recording.stopAndUnloadAsync(); } catch {}
     const uri = this.recording.getURI();
     this.recording = null;
-
-    if (uri) {
-      FileSystem.deleteAsync(uri, { idempotent: true }).catch(console.warn);
-    }
-
+    if (uri) FileSystem.deleteAsync(uri, { idempotent: true }).catch(console.warn);
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
     });
   }
 
-  getIsRecording(): boolean {
-    return this.isRecording;
-  }
+  // ── State ─────────────────────────────────────────────────────────────────
+
+  getIsRecording(): boolean { return this.isRecording; }
+
+  // ── Callbacks & config ────────────────────────────────────────────────────
 
   setLevelChangeCallback(cb: ((level: number) => void) | null): void {
     this.onLevelChange = cb;
   }
 
-  private async transcribeAudio(uri: string): Promise<string | null> {
-    try {
-      // Read file as base64
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+  /** Fires automatically when VAD detects end-of-speech silence */
+  setAutoStopCallback(cb: (() => void) | null): void {
+    this.onAutoStop = cb;
+  }
 
-      const response = await sessionApi.transcribe({
-        audio_base64: base64,
-        mime_type: 'audio/m4a',
-      });
+  setVadEnabled(enabled: boolean): void {
+    this.vadEnabled = enabled;
+    if (!enabled) this._clearSilenceTimer();
+  }
 
-      return response.data.transcript ?? null;
-    } catch (err) {
-      console.error('[STTService] Transcription failed:', err);
-      throw err;
+  isVadEnabled(): boolean { return this.vadEnabled; }
+
+  // ── Private ───────────────────────────────────────────────────────────────
+
+  private _clearSilenceTimer(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
     }
   }
 
-  private clearLevelInterval(): void {
-    if (this.levelInterval) {
-      clearInterval(this.levelInterval);
-      this.levelInterval = null;
-    }
+  private async _transcribeAudio(uri: string): Promise<string | null> {
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const response = await sessionApi.transcribe({
+      audio_base64: base64,
+      mime_type: 'audio/m4a',
+    });
+    return response.data.transcript ?? null;
   }
 }
 
-// Singleton instance
 export const sttService = new STTService();

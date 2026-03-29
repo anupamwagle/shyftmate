@@ -62,6 +62,7 @@ export default function ConversationScreen() {
     .find((m) => m.role === 'assistant');
 
   const appStateRef = useRef(AppState.currentState);
+  const prevSpeakingRef = useRef(false);
 
   // ---------------------------------------------------------------------------
   // Session init — only when authenticated
@@ -187,6 +188,18 @@ export default function ConversationScreen() {
   }, []);
 
   // ---------------------------------------------------------------------------
+  // VAD auto-stop — fires when silence detected after speech
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    sttService.setAutoStopCallback(() => {
+      if (sttService.getIsRecording()) {
+        handleStopRecording();
+      }
+    });
+    return () => sttService.setAutoStopCallback(null);
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Voice service speaking state sync
   // ---------------------------------------------------------------------------
   useEffect(() => {
@@ -199,6 +212,27 @@ export default function ConversationScreen() {
     });
     return () => voiceService.setSpeakingChangeCallback(null);
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Auto-continue loop — after AI finishes speaking, restart mic automatically
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    const wasJustSpeaking = prevSpeakingRef.current && !isSpeaking;
+    prevSpeakingRef.current = isSpeaking;
+
+    if (
+      wasJustSpeaking &&
+      isVoiceMode &&
+      state.matches('active') &&
+      !isRecording &&
+      !isAwaitingReply
+    ) {
+      const t = setTimeout(() => {
+        handleStartRecording();
+      }, 600);
+      return () => clearTimeout(t);
+    }
+  }, [isSpeaking]);
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -614,7 +648,7 @@ function VoiceModeBody({
       {isRecording && (
         <View style={styles.recordingStatus}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingText}>Listening...</Text>
+          <Text style={styles.recordingText}>Listening — stops on silence</Text>
           <VoiceWaveform
             isActive={isRecording}
             audioLevel={audioLevel}
