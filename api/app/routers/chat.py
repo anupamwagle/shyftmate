@@ -241,6 +241,8 @@ async def transcribe_audio(
             client = AsyncOpenAI(
                 api_key="not-needed",
                 base_url=settings.WHISPER_SERVICE_URL,
+                timeout=20.0,   # fail fast — if it's not up, we want to know quickly
+                max_retries=0,  # no retries — whisper is either running or it isn't
             )
             transcript = await client.audio.transcriptions.create(
                 model=settings.WHISPER_MODEL,
@@ -250,12 +252,27 @@ async def transcribe_audio(
             return TranscribeResponse(transcript=transcript.text, confidence=1.0)
         except Exception as exc:
             log.error("[TRANSCRIBE] local faster-whisper failed: %s", exc)
-            raise HTTPException(
-                status_code=500,
-                detail={"error_code": "TRANSCRIPTION_ERROR", "message": str(exc), "detail": None},
-            )
+            # Auto-fallback to OpenAI if a key is available
+            if settings.OPENAI_API_KEY:
+                log.warning(
+                    "[TRANSCRIBE] faster-whisper at %s unreachable — falling back to OpenAI",
+                    settings.WHISPER_SERVICE_URL,
+                )
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error_code": "STT_UNAVAILABLE",
+                        "message": (
+                            f"Local STT server at {settings.WHISPER_SERVICE_URL} is not reachable. "
+                            "Start faster-whisper-server on the GPU machine, or add OPENAI_API_KEY "
+                            "to .env.dev as a fallback."
+                        ),
+                        "detail": str(exc),
+                    },
+                )
 
-    # ── OpenAI Whisper API ────────────────────────────────────────────────────
+    # ── OpenAI Whisper API (primary or fallback) ──────────────────────────────
     if not settings.OPENAI_API_KEY:
         log.warning("[TRANSCRIBE] No OPENAI_API_KEY and STT_PROVIDER=openai — unavailable")
         raise HTTPException(
