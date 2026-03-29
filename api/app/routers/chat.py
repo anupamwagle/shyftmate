@@ -237,12 +237,16 @@ async def transcribe_audio(
     # ── Local faster-whisper sidecar ──────────────────────────────────────────
     if settings.STT_PROVIDER == "local":
         try:
+            import httpx
             from openai import AsyncOpenAI
             client = AsyncOpenAI(
                 api_key="not-needed",
                 base_url=settings.WHISPER_SERVICE_URL,
-                timeout=20.0,   # fail fast — if it's not up, we want to know quickly
-                max_retries=0,  # no retries — whisper is either running or it isn't
+                # Short connect timeout → fail fast if server is truly down
+                # Long read timeout → allow large-v3 to load into VRAM on first use
+                #   (model load ~30s + transcription ~5s = allow 120s total)
+                timeout=httpx.Timeout(connect=5.0, read=120.0, write=30.0, pool=5.0),
+                max_retries=0,  # no retries — server is either up or it isn't
             )
             transcript = await client.audio.transcriptions.create(
                 model=settings.WHISPER_MODEL,
