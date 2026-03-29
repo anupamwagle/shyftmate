@@ -47,49 +47,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── faster-whisper STT sidecar ───────────────────────────────────────────────
-  # Whisper running as an OpenAI-compatible API on port 9000.
-  # Model (~1.5 GB) auto-downloads on first start, cached in whisper_models volume.
+  # ── faster-whisper-server runs on the GPU machine (192.168.4.150) ────────────
+  # Same approach as Ollama — the GPU box hosts both the LLM and the STT service.
+  # No Docker GPU passthrough required on the dev machine.
   #
-  # Currently: CPU mode (int8) — works out of the box, no driver setup needed.
-  # For GPU: see instructions below to enable CUDA (faster, uses ~1.5 GB VRAM).
-  #
-  # ── To enable GPU (RTX 3070 Ti) ──────────────────────────────────────────
-  # Run these commands in WSL2, then restart Docker Desktop:
-  #
-  #   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-  #     sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  #   curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-  #     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-  #     sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  #   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-  #   sudo nvidia-ctk runtime configure --runtime=docker
-  #
-  # Then change:
-  #   image: fedirz/faster-whisper-server:latest-cuda
-  #   WHISPER__DEVICE: cuda
-  # And uncomment the deploy block below.
-  whisper:
-    image: fedirz/faster-whisper-server:latest-cpu
-    container_name: gator_whisper
-    restart: unless-stopped
-    ports:
-      - "9000:8000"
-    environment:
-      WHISPER__MODEL: large-v3-turbo
-      WHISPER__DEVICE: cpu
-      WHISPER__LANGUAGE: en
-      WHISPER__BEAM_SIZE: "5"
-    volumes:
-      - whisper_models:/root/.cache/huggingface
-    # Uncomment when nvidia-container-toolkit is installed in WSL2:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+  # Start it on the GPU machine — see README or the comment in .env.dev.
+  # WHISPER_SERVICE_URL below points the API at it.
 
   api:
     build:
@@ -104,7 +67,7 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://192.168.4.150:11434/v1
       - REDIS_URL=redis://redis:6379
-      - WHISPER_SERVICE_URL=http://whisper:8000/v1
+      - WHISPER_SERVICE_URL=http://192.168.4.150:9000/v1
       - KOKORO_MODEL_CACHE=/models/kokoro
     depends_on:
       postgres:
@@ -120,5 +83,4 @@ volumes:
   postgres_data:
   pgadmin_data:
   redis_data:
-  whisper_models:
   kokoro_models:
