@@ -79,6 +79,40 @@ services:
       - kokoro_models:/models/kokoro
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
+  # ── Client Dev Server ────────────────────────────────────────────────────────
+  # Runs Vite in a container to bypass the Windows WSL native network firewall
+  client:
+    image: node:20
+    container_name: gator_client
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./shyftmate:/app
+    working_dir: /app
+    command: npm run dev -- --host 0.0.0.0
+  # ── Mobile Dev Server ────────────────────────────────────────────────────────
+  # Runs Expo Metro in a container to bypass the Windows WSL native firewall.
+  # Port 8081 must be mapped — the phone connects directly to host:8081.
+  # EXPO_PACKAGER_HOSTNAME tells Metro what IP to embed in the QR code URL;
+  # without it Docker's internal IP (172.x.x.x) ends up in the QR code instead
+  # of the real LAN IP, causing "failed to download remote update" on the device.
+  mobile:
+    image: node:20
+    container_name: gator_mobile
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    ports:
+      - "8081:8081"
+    environment:
+      - REACT_NATIVE_PACKAGER_HOSTNAME=192.168.4.150
+      - EXPO_PACKAGER_HOSTNAME=192.168.4.150
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./mobile:/app
+    working_dir: /app
+    command: npx expo start -c --host 192.168.4.150
 volumes:
   postgres_data:
   pgadmin_data:
