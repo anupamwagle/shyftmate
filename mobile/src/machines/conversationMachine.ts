@@ -139,6 +139,22 @@ export const conversationMachine = createMachine(
               error: null,
             })),
           },
+          // Allow mode toggle even before session loads
+          TOGGLE_MODE: {
+            actions: assign(({ context }) => ({
+              mode: context.mode === 'voice' ? 'chat' : 'voice',
+            })),
+          },
+          // If session creation fails, surface the error
+          ERROR: {
+            target: 'error',
+            actions: assign(({ event }) => ({ error: event.message })),
+          },
+          // Allow ending before session loads (just resets)
+          END_SESSION: {
+            target: 'error',
+            actions: assign({ error: 'Session ended before it could start.' }),
+          },
         },
       },
 
@@ -387,8 +403,14 @@ export const conversationMachine = createMachine(
       error: {
         on: {
           RETRY: {
-            target: 'active',
-            actions: assign({ error: null }),
+            target: 'idle',
+            actions: assign({
+              error: null,
+              sessionId: null,
+              messages: [],
+              currentNode: 'idle' as ConversationNode,
+              extractedData: {},
+            }),
           },
           GO_BACK: {
             target: 'idle',
@@ -399,6 +421,12 @@ export const conversationMachine = createMachine(
               currentNode: 'idle' as ConversationNode,
               extractedData: {},
             }),
+          },
+          // Allow mode toggle from error screen
+          TOGGLE_MODE: {
+            actions: assign(({ context }) => ({
+              mode: context.mode === 'voice' ? 'chat' : 'voice',
+            })),
           },
         },
       },

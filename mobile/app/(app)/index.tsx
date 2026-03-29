@@ -46,6 +46,8 @@ export default function ConversationScreen() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [isAwaitingReply, setIsAwaitingReply] = useState(false);
+  // Track whether the initial session API call is in-flight
+  const [sessionLoading, setSessionLoading] = useState(false);
 
   const isVoiceMode = state.context.mode === 'voice';
   const isRecording = state.context.isRecording;
@@ -70,7 +72,15 @@ export default function ConversationScreen() {
     }
   }, [isAuthenticated]);
 
+  // Re-run initSession when machine returns to idle (e.g. after RETRY from error)
+  useEffect(() => {
+    if (isAuthenticated && state.matches('idle') && !sessionLoading) {
+      initSession();
+    }
+  }, [state.value]);
+
   const initSession = async () => {
+    setSessionLoading(true);
     try {
       // Check for persisted session
       const savedId = await persistenceService.getActiveSessionId();
@@ -90,7 +100,7 @@ export default function ConversationScreen() {
               session: { ...server, messages: reconciled },
             });
           } catch {
-            // Server fetch failed — use local state
+            // Server fetch failed — use local state (offline mode)
             send({
               type: 'SESSION_LOADED',
               session: {
@@ -109,11 +119,14 @@ export default function ConversationScreen() {
         }
       }
 
-      // Create new session via loading state
+      // Create new session on the server
       const res = await sessionApi.create('New Interview');
       send({ type: 'SESSION_LOADED', session: res.data });
     } catch (err: any) {
-      send({ type: 'ERROR', message: err?.message ?? 'Failed to start session' });
+      const msg = err?.message ?? 'Failed to connect to server';
+      send({ type: 'ERROR', message: `Could not start session: ${msg}` });
+    } finally {
+      setSessionLoading(false);
     }
   };
 
@@ -270,6 +283,20 @@ export default function ConversationScreen() {
   }, [chatInput, isSendingChat]);
 
   const handleEndSession = () => {
+    // If no active session yet (loading or error), just go back to home
+    const inIdle = state.matches('idle');
+    const inError = state.matches('error');
+    if (inIdle || inError || !sessionId) {
+      voiceService.stop();
+      if (isRecording) {
+        sttService.cancelRecording().catch(console.warn);
+      }
+      // Clear any persisted session so next open starts fresh
+      persistenceService.clearActiveSession().catch(console.warn);
+      router.replace('/(app)');
+      return;
+    }
+
     Alert.alert(
       'End Interview',
       'Are you sure you want to end this session? The captured data will be saved.',
@@ -426,7 +453,7 @@ export default function ConversationScreen() {
           lastAssistantMessage={lastAssistantMessage?.content}
           isRecording={isRecording}
           isSpeaking={isSpeaking}
-          isLoading={isAwaitingReply || state.matches('loading') || state.matches('idle')}
+          isLoading={isAwaitingReply || state.matches('loading') || sessionLoading}
           audioLevel={audioLevel}
           onMicPress={handleMicPress}
           onToggleMode={() => send({ type: 'TOGGLE_MODE' })}
@@ -434,6 +461,8 @@ export default function ConversationScreen() {
           onSignIn={() => router.push('/(auth)/login')}
           isAuthenticated={isAuthenticated}
           error={error}
+          sessionLoading={sessionLoading}
+          onRetry={initSession}
         />
       ) : (
         <ChatModeBody
@@ -466,6 +495,8 @@ interface VoiceModeBodyProps {
   onSignIn: () => void;
   isAuthenticated: boolean;
   error: string | null;
+  sessionLoading?: boolean;
+  onRetry?: () => void;
 }
 
 function VoiceModeBody({
@@ -480,6 +511,8 @@ function VoiceModeBody({
   onSignIn,
   isAuthenticated,
   error,
+  sessionLoading,
+  onRetry,
 }: VoiceModeBodyProps) {
   return (
     <View style={styles.voiceBody}>
@@ -521,11 +554,31 @@ function VoiceModeBody({
             <MaterialCommunityIcons
               name="robot-outline"
               size={32}
-              color={Colors.brand[200]}
+              color={error ? Colors.red[300] : Colors.brand[200]}
             />
-            <Text style={styles.voiceEmptyText}>
-              {isLoading ? 'Starting session...' : 'Tap the mic to begin'}
-            </Text>
+            {error ? (
+              <>
+                <Text style={[styles.voiceEmptyText, { color: Colors.red[600], textAlign: 'center' }]}>
+                  {error}
+                </Text>
+                {onRetry && (
+                  <TouchableOpacity style={styles.signInPromptButton} onPress={onRetry}>
+                    <Text style={styles.signInPromptButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.toggleModeButton, { marginTop: 8 }]}
+                  onPress={onToggleMode}
+                >
+                  <MaterialCommunityIcons name="message-text-outline" size={14} color={Colors.brand[600]} />
+                  <Text style={styles.toggleModeText}>Use Chat Mode Instead</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={styles.voiceEmptyText}>
+                {sessionLoading ? 'Connecting to server...' : 'Tap the mic to begin'}
+              </Text>
+            )}
           </View>
         )}
 
