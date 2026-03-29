@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3"
     OPENAI_API_KEY: str = ""
 
+    # Voice — STT provider
+    # "openai" → OpenAI Whisper API (requires OPENAI_API_KEY)
+    # "local"  → faster-whisper-server Docker sidecar (no key, GPU-accelerated)
+    STT_PROVIDER: Literal["openai", "local"] = "openai"
+    WHISPER_SERVICE_URL: str = "http://whisper:8000/v1"
+    WHISPER_MODEL: str = "large-v3-turbo"
+
+    # Voice — TTS provider
+    # "openai"  → OpenAI TTS nova (requires OPENAI_API_KEY)
+    # "kokoro"  → Kokoro-ONNX local TTS (no key, CPU, ~80 MB download on first run)
+    TTS_PROVIDER: Literal["openai", "kokoro"] = "openai"
+    KOKORO_VOICE: str = "af_sky"            # af_sky | af_bella | af_nicole | bf_emma
+    KOKORO_MODEL_CACHE: str = "/models/kokoro"
+
     # Google OAuth2
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

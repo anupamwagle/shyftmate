@@ -119,8 +119,8 @@ export class VoiceService {
       { text, voice: 'nova' },
     );
 
-    const { audio_base64 } = res.data;
-    const uri = (FileSystem.cacheDirectory ?? '') + `aria_${Date.now()}.mp3`;
+    const { audio_base64, format = 'mp3' } = res.data;
+    const uri = (FileSystem.cacheDirectory ?? '') + `aria_${Date.now()}.${format}`;
 
     await FileSystem.writeAsStringAsync(uri, audio_base64, {
       encoding: FileSystem.EncodingType.Base64,

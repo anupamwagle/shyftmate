@@ -24,3 +24,8 @@ python-dotenv>=1.0.0
 pyotp>=2.9.0
 signalwire>=2.0.0
 openai>=1.0.0
+
+# Local voice — Kokoro-ONNX TTS (CPU, no VRAM, ~80 MB model download on first use)
+# STT is handled by the faster-whisper-server Docker sidecar (see docker-compose.yml)
+kokoro-onnx>=0.3.0
+soundfile>=0.12.1

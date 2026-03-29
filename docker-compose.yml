@@ -47,6 +47,37 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── faster-whisper STT sidecar ───────────────────────────────────────────────
+  # GPU-accelerated Whisper running as an OpenAI-compatible API on port 9000.
+  # The model (~1.5 GB) auto-downloads on first start and is cached in the
+  # whisper_models volume so it survives container rebuilds.
+  #
+  # Requires: NVIDIA drivers on Windows + Docker Desktop (WSL2 backend).
+  # No extra setup needed — Docker Desktop enables WSL2 CUDA automatically.
+  #
+  # Switch to it: set STT_PROVIDER=local in .env.dev
+  # Use CPU instead: change image tag to latest-cpu and remove the deploy block
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cuda
+    container_name: gator_whisper
+    restart: unless-stopped
+    ports:
+      - "9000:8000"
+    environment:
+      WHISPER__MODEL: large-v3-turbo
+      WHISPER__DEVICE: cuda
+      WHISPER__LANGUAGE: en
+      WHISPER__BEAM_SIZE: "5"
+    volumes:
+      - whisper_models:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
   api:
     build:
       context: ./api
@@ -60,6 +91,8 @@ services:
     environment:
       - OLLAMA_BASE_URL=http://192.168.4.150:11434/v1
       - REDIS_URL=redis://redis:6379
+      - WHISPER_SERVICE_URL=http://whisper:8000/v1
+      - KOKORO_MODEL_CACHE=/models/kokoro
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,9 +100,12 @@ services:
         condition: service_healthy
     volumes:
       - ./api:/app
+      - kokoro_models:/models/kokoro
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
 volumes:
   postgres_data:
   pgadmin_data:
   redis_data:
+  whisper_models:
+  kokoro_models:

@@ -223,36 +223,63 @@ async def transcribe_audio(
     body: TranscribeRequest,
     current_user: User = Depends(get_current_user),
 ):
-    import logging
-    log = logging.getLogger("gator.api.chat")
     settings = get_settings()
-    log.info("[TRANSCRIBE] Received audio transcription request (mime=%s, size=%d bytes)",
-             body.mime_type, len(body.audio_base64))
+    log.info(
+        "[TRANSCRIBE] provider=%s mime=%s size=%d bytes",
+        settings.STT_PROVIDER, body.mime_type, len(body.audio_base64),
+    )
+
+    audio_bytes = base64.b64decode(body.audio_base64)
+    ext = body.mime_type.split("/")[-1].replace("mpeg", "mp3").replace("x-m4a", "m4a")
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = f"audio.{ext}"
+
+    # ── Local faster-whisper sidecar ──────────────────────────────────────────
+    if settings.STT_PROVIDER == "local":
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(
+                api_key="not-needed",
+                base_url=settings.WHISPER_SERVICE_URL,
+            )
+            transcript = await client.audio.transcriptions.create(
+                model=settings.WHISPER_MODEL,
+                file=audio_file,
+            )
+            log.info("[TRANSCRIBE] local whisper — %d chars", len(transcript.text))
+            return TranscribeResponse(transcript=transcript.text, confidence=1.0)
+        except Exception as exc:
+            log.error("[TRANSCRIBE] local faster-whisper failed: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail={"error_code": "TRANSCRIPTION_ERROR", "message": str(exc), "detail": None},
+            )
+
+    # ── OpenAI Whisper API ────────────────────────────────────────────────────
     if not settings.OPENAI_API_KEY:
-        log.warning("[TRANSCRIBE] No OPENAI_API_KEY configured — voice transcription unavailable")
+        log.warning("[TRANSCRIBE] No OPENAI_API_KEY and STT_PROVIDER=openai — unavailable")
         raise HTTPException(
             status_code=503,
             detail={
                 "error_code": "STT_NOT_CONFIGURED",
-                "message": "Voice transcription is not configured on this server. Please switch to Chat mode to type your message.",
+                "message": (
+                    "Voice transcription is not configured. "
+                    "Either add OPENAI_API_KEY or set STT_PROVIDER=local in .env.dev."
+                ),
                 "detail": None,
             },
         )
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        audio_bytes = base64.b64decode(body.audio_base64)
-        ext = body.mime_type.split("/")[-1].replace("mpeg", "mp3").replace("x-m4a", "m4a")
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = f"audio.{ext}"
         transcript = await client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_file,
         )
-        log.info("[TRANSCRIBE] Success — transcript length=%d chars", len(transcript.text))
+        log.info("[TRANSCRIBE] OpenAI whisper — %d chars", len(transcript.text))
         return TranscribeResponse(transcript=transcript.text, confidence=1.0)
     except Exception as exc:
-        log.error("[TRANSCRIBE] Whisper API failed: %s", exc)
+        log.error("[TRANSCRIBE] OpenAI Whisper failed: %s", exc)
         raise HTTPException(
             status_code=500,
             detail={"error_code": "TRANSCRIPTION_ERROR", "message": str(exc), "detail": None},
@@ -270,37 +297,54 @@ class TTSResponse(BaseModel):
     format: str = "mp3"
 
 
-@router.post("/tts", response_model=TTSResponse, summary="Text-to-speech via OpenAI TTS (nova voice)")
+@router.post("/tts", response_model=TTSResponse, summary="Text-to-speech (OpenAI nova or local Kokoro)")
 async def text_to_speech(
     body: TTSRequest,
     current_user: User = Depends(get_current_user),
 ):
     settings = get_settings()
+    log.info("[TTS] provider=%s text_len=%d", settings.TTS_PROVIDER, len(body.text))
+
+    # ── Local Kokoro-ONNX TTS ─────────────────────────────────────────────────
+    if settings.TTS_PROVIDER == "kokoro":
+        try:
+            from app.services.local_tts_service import synthesize_kokoro
+            audio_b64, fmt = await synthesize_kokoro(body.text, voice=settings.KOKORO_VOICE)
+            return TTSResponse(audio_base64=audio_b64, voice=settings.KOKORO_VOICE, format=fmt)
+        except Exception as exc:
+            log.error("[TTS] Kokoro failed: %s", exc)
+            raise HTTPException(
+                status_code=500,
+                detail={"error_code": "TTS_ERROR", "message": str(exc), "detail": None},
+            )
+
+    # ── OpenAI TTS ────────────────────────────────────────────────────────────
     if not settings.OPENAI_API_KEY:
         raise HTTPException(
             status_code=503,
             detail={
                 "error_code": "TTS_NOT_CONFIGURED",
-                "message": "OpenAI TTS is not configured. Add OPENAI_API_KEY to .env.dev.",
+                "message": (
+                    "OpenAI TTS is not configured. "
+                    "Either add OPENAI_API_KEY or set TTS_PROVIDER=kokoro in .env.dev."
+                ),
                 "detail": None,
             },
         )
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        log.info("[TTS] voice=%s text_len=%d", body.voice, len(body.text))
         response = await client.audio.speech.create(
             model="tts-1",
             voice=body.voice,
             input=body.text,
             response_format="mp3",
         )
-        audio_bytes = response.content
-        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        log.info("[TTS] Done — %d audio bytes", len(audio_bytes))
-        return TTSResponse(audio_base64=audio_b64, voice=body.voice)
+        audio_b64 = base64.b64encode(response.content).decode("utf-8")
+        log.info("[TTS] OpenAI done — %d audio bytes", len(response.content))
+        return TTSResponse(audio_base64=audio_b64, voice=body.voice, format="mp3")
     except Exception as exc:
-        log.error("[TTS] Error: %s", exc)
+        log.error("[TTS] OpenAI error: %s", exc)
         raise HTTPException(
             status_code=500,
             detail={"error_code": "TTS_ERROR", "message": str(exc), "detail": None},
