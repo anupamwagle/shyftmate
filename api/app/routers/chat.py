@@ -1,6 +1,7 @@
 """Chat router — mobile BA conversation sessions."""
 import base64
 import io
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -26,6 +27,8 @@ from app.schemas.conversation import (
     ConversationSessionOut,
 )
 from app.services.llm_service import get_ai_reply
+
+log = logging.getLogger("gator.api.chat")
 
 
 class TranscribeRequest(BaseModel):
@@ -136,6 +139,11 @@ async def send_message(
             detail={"error_code": "SESSION_COMPLETE", "message": "This session is already complete.", "detail": None},
         )
 
+    log.info(
+        "[CHAT] session=%s node=%s user_msg_len=%d",
+        session.id, session.current_node, len(body.content),
+    )
+
     # Save user message
     user_msg = ChatMessage(
         session_id=session.id,
@@ -147,7 +155,12 @@ async def send_message(
     await db.flush()
 
     # Get AI reply
+    log.info("[CHAT] Calling LLM for session=%s …", session.id)
     assistant_text, rule_delta = await get_ai_reply(session, body.content, db)
+    log.info(
+        "[CHAT] LLM replied for session=%s node=%s reply_len=%d",
+        session.id, session.current_node, len(assistant_text),
+    )
 
     # Save assistant message
     assistant_msg = ChatMessage(
@@ -210,26 +223,40 @@ async def transcribe_audio(
     body: TranscribeRequest,
     current_user: User = Depends(get_current_user),
 ):
+    import logging
+    log = logging.getLogger("gator.api.chat")
     settings = get_settings()
-    if settings.OPENAI_API_KEY:
-        try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            audio_bytes = base64.b64decode(body.audio_base64)
-            ext = body.mime_type.split("/")[-1].replace("mpeg", "mp3").replace("x-m4a", "m4a")
-            audio_file = io.BytesIO(audio_bytes)
-            audio_file.name = f"audio.{ext}"
-            transcript = await client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-            )
-            return TranscribeResponse(transcript=transcript.text, confidence=1.0)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail={"error_code": "TRANSCRIPTION_ERROR", "message": str(exc), "detail": None},
-            )
-    return TranscribeResponse(transcript="", confidence=0.0)
+    log.info("[TRANSCRIBE] Received audio transcription request (mime=%s, size=%d bytes)",
+             body.mime_type, len(body.audio_base64))
+    if not settings.OPENAI_API_KEY:
+        log.warning("[TRANSCRIBE] No OPENAI_API_KEY configured — voice transcription unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "STT_NOT_CONFIGURED",
+                "message": "Voice transcription is not configured on this server. Please switch to Chat mode to type your message.",
+                "detail": None,
+            },
+        )
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        audio_bytes = base64.b64decode(body.audio_base64)
+        ext = body.mime_type.split("/")[-1].replace("mpeg", "mp3").replace("x-m4a", "m4a")
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = f"audio.{ext}"
+        transcript = await client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+        )
+        log.info("[TRANSCRIBE] Success — transcript length=%d chars", len(transcript.text))
+        return TranscribeResponse(transcript=transcript.text, confidence=1.0)
+    except Exception as exc:
+        log.error("[TRANSCRIBE] Whisper API failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"error_code": "TRANSCRIPTION_ERROR", "message": str(exc), "detail": None},
+        )
 
 
 @router.get("/settings/llm", summary="Get LLM provider settings")

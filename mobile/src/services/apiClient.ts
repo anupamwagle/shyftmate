@@ -325,11 +325,11 @@ export const sessionApi = {
 export const settingsApi = {
   getProviderSettings: () =>
     apiClient.get<{ llm_provider: string; ollama_url: string }>(
-      '/settings/llm',
+      '/chat/settings/llm',
     ),
 
   updateProviderSettings: (data: {
     llm_provider: string;
     ollama_url?: string;
-  }) => apiClient.put('/settings/llm', data),
+  }) => apiClient.put('/chat/settings/llm', data),
 };

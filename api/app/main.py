@@ -1,3 +1,5 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
@@ -11,6 +13,16 @@ from app.core.seed import run_seed
 from app.database import get_db
 from app.limiter import limiter
 from app.routers import auth, users, agreements, rules, chat, telephony, export, audit, health, workforce
+
+# ---------------------------------------------------------------------------
+# Logging configuration
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("gator.api")
 
 settings = get_settings()
 
@@ -78,6 +90,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Request/response logging middleware
+# ---------------------------------------------------------------------------
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    client_ip = request.client.host if request.client else "unknown"
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start) * 1000
+        logger.error(
+            "%-6s %-60s → ERROR  (%.0fms) [%s] %s",
+            request.method, request.url.path, duration_ms, client_ip, str(exc),
+        )
+        raise
+    duration_ms = (time.perf_counter() - start) * 1000
+    # Colour-code by status: 2xx=INFO, 4xx=WARNING, 5xx=ERROR
+    level = logging.INFO if response.status_code < 400 else (
+        logging.WARNING if response.status_code < 500 else logging.ERROR
+    )
+    logger.log(
+        level,
+        "%-6s %-60s → %d  (%.0fms) [%s]",
+        request.method, request.url.path, response.status_code, duration_ms, client_ip,
+    )
+    return response
 
 
 # Global error handler

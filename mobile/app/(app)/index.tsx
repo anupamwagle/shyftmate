@@ -228,12 +228,37 @@ export default function ConversationScreen() {
       if (transcript && transcript.trim()) {
         send({ type: 'SEND_MESSAGE', content: transcript.trim() });
       } else {
-        // No speech detected
+        // Empty transcript — STT not configured or no speech detected
         setIsAwaitingReply(false);
+        Alert.alert(
+          'No Speech Detected',
+          'Could not transcribe speech. Voice transcription requires an OpenAI API key on the server.\n\nSwitch to Chat mode to type your message instead.',
+          [
+            { text: 'Switch to Chat', onPress: () => send({ type: 'TOGGLE_MODE' }) },
+            { text: 'OK', style: 'cancel' },
+          ],
+        );
       }
     } catch (err: any) {
       setIsAwaitingReply(false);
-      send({ type: 'ERROR', message: err?.message ?? 'Transcription failed' });
+      const msg: string = err?.message ?? 'Transcription failed';
+      // STT not configured — guide user to chat mode
+      if (
+        msg.includes('not configured') ||
+        msg.includes('STT_NOT_CONFIGURED') ||
+        msg.includes('503')
+      ) {
+        Alert.alert(
+          'Voice Transcription Unavailable',
+          'The server is not configured for speech-to-text.\n\nSwitch to Chat mode to type your message.',
+          [
+            { text: 'Switch to Chat', onPress: () => send({ type: 'TOGGLE_MODE' }) },
+            { text: 'OK', style: 'cancel' },
+          ],
+        );
+      } else {
+        Alert.alert('Transcription Error', msg, [{ text: 'OK' }]);
+      }
     }
   };
 
@@ -401,7 +426,7 @@ export default function ConversationScreen() {
           lastAssistantMessage={lastAssistantMessage?.content}
           isRecording={isRecording}
           isSpeaking={isSpeaking}
-          isLoading={isAwaitingReply || state.matches('loading')}
+          isLoading={isAwaitingReply || state.matches('loading') || state.matches('idle')}
           audioLevel={audioLevel}
           onMicPress={handleMicPress}
           onToggleMode={() => send({ type: 'TOGGLE_MODE' })}
