@@ -171,7 +171,11 @@ class AnthropicProvider(LLMProvider):
 class OllamaProvider(LLMProvider):
     def __init__(self):
         settings = get_settings()
-        self.base_url = settings.OLLAMA_BASE_URL
+        # Strip /v1 suffix if present — we use the native Ollama /api/chat endpoint
+        base = settings.OLLAMA_BASE_URL.rstrip("/")
+        if base.endswith("/v1"):
+            base = base[:-3]
+        self.base_url = base
         self.model = settings.OLLAMA_MODEL
 
     async def complete(self, messages: list[dict], system: str) -> str:
@@ -180,25 +184,32 @@ class OllamaProvider(LLMProvider):
             "messages": [{"role": "system", "content": system}] + messages,
             "stream": False,
         }
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(f"{self.base_url}/api/chat", json=payload)
             response.raise_for_status()
             data = response.json()
-            return data["message"]["content"]
+            content = data["message"]["content"]
+            # Strip <think>...</think> blocks emitted by reasoning models (e.g. deepseek-r1)
+            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+            return content
 
 
 _provider_instance: Optional[LLMProvider] = None
+_provider_config: tuple[str, str] = ("", "")  # (LLM_PROVIDER, OLLAMA_MODEL)
 
 
 def get_llm_provider() -> LLMProvider:
-    global _provider_instance
-    if _provider_instance is None:
-        settings = get_settings()
+    global _provider_instance, _provider_config
+    settings = get_settings()
+    current_config = (settings.LLM_PROVIDER, settings.OLLAMA_MODEL)
+    if _provider_instance is None or current_config != _provider_config:
         match settings.LLM_PROVIDER:
             case "anthropic":
                 _provider_instance = AnthropicProvider()
             case _:
                 _provider_instance = OllamaProvider()
+        _provider_config = current_config
+        logger.info("LLM provider initialised: %s (model=%s)", settings.LLM_PROVIDER, settings.OLLAMA_MODEL)
     return _provider_instance
 
 
