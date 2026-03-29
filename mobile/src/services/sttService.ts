@@ -187,7 +187,7 @@ export class STTService {
 
   private async _transcribeAudio(uri: string): Promise<string | null> {
     const base64 = await FileSystem.readAsStringAsync(uri, {
-      encoding: 'base64' as FileSystem.EncodingType,
+      encoding: 'base64' as any,
     });
     const response = await sessionApi.transcribe({
       audio_base64: base64,

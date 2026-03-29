@@ -123,7 +123,7 @@ export class VoiceService {
     const uri = (FileSystem.cacheDirectory ?? '') + `aria_${Date.now()}.${format}`;
 
     await FileSystem.writeAsStringAsync(uri, audio_base64, {
-      encoding: 'base64' as FileSystem.EncodingType,
+      encoding: 'base64' as any,
     });
 
     // Switch audio mode to playback
