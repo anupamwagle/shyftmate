@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Switch,
   TouchableOpacity,
-  TextInput,
   ScrollView,
   ActivityIndicator,
   Alert,
@@ -27,33 +26,26 @@ import {
   Shadow,
 } from '../../src/constants/theme';
 
-type LLMProvider = 'anthropic' | 'ollama';
-
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
 
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [femaleVoices, setFemaleVoices] = useState<Speech.Voice[]>([]);
+  const [voiceEnabled, setVoiceEnabled]     = useState(true);
+  const [femaleVoices, setFemaleVoices]     = useState<Speech.Voice[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
-  const [llmProvider, setLlmProvider] = useState<LLMProvider>('anthropic');
-  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [isLoadingVoices, setIsLoadingVoices] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving]             = useState(false);
+  const [saveSuccess, setSaveSuccess]       = useState(false);
 
-  // Load persisted settings on mount
   useEffect(() => {
     loadSettings();
     loadVoices();
   }, []);
 
   const loadSettings = async () => {
-    const settings = await persistenceService.loadSettings();
-    setVoiceEnabled(settings.voiceEnabled);
-    setSelectedVoiceId(settings.selectedVoiceId);
-    setLlmProvider(settings.llmProvider);
-    setOllamaUrl(settings.ollamaUrl);
+    const s = await persistenceService.loadSettings();
+    setVoiceEnabled(s.voiceEnabled);
+    setSelectedVoiceId(s.selectedVoiceId);
   };
 
   const loadVoices = async () => {
@@ -64,7 +56,7 @@ export default function SettingsScreen() {
       const current = voiceService.getSelectedVoice();
       if (current) setSelectedVoiceId(current.identifier);
     } catch {
-      // Voice loading failed — not critical
+      // not critical
     } finally {
       setIsLoadingVoices(false);
     }
@@ -78,28 +70,16 @@ export default function SettingsScreen() {
   const handleVoiceSelect = (voiceId: string) => {
     setSelectedVoiceId(voiceId);
     voiceService.setVoice(voiceId);
-
-    // Preview selected voice
-    voiceService.speak('Hello, I\'m your Gator AI assistant.').catch(console.warn);
+    voiceService.speak("Hi, I'm Aria. How does this voice sound?").catch(console.warn);
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
-
     try {
-      await persistenceService.saveSettings({
-        voiceEnabled,
-        selectedVoiceId,
-        llmProvider,
-        ollamaUrl: llmProvider === 'ollama' ? ollamaUrl : undefined,
-      });
-
+      await persistenceService.saveSettings({ voiceEnabled, selectedVoiceId });
       voiceService.setEnabled(voiceEnabled);
-      if (selectedVoiceId) {
-        voiceService.setVoice(selectedVoiceId);
-      }
-
+      if (selectedVoiceId) voiceService.setVoice(selectedVoiceId);
       setSaveSuccess(true);
       setTimeout(() => {
         setSaveSuccess(false);
@@ -140,25 +120,14 @@ export default function SettingsScreen() {
           onPress={() => router.back()}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <MaterialCommunityIcons
-            name="close"
-            size={22}
-            color={Colors.text.primary}
-          />
+          <MaterialCommunityIcons name="close" size={22} color={Colors.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
-        <TouchableOpacity
-          onPress={handleSave}
-          disabled={isSaving}
-        >
+        <TouchableOpacity onPress={handleSave} disabled={isSaving}>
           {isSaving ? (
             <ActivityIndicator size="small" color={Colors.brand[600]} />
           ) : saveSuccess ? (
-            <MaterialCommunityIcons
-              name="check"
-              size={22}
-              color={Colors.green[500]}
-            />
+            <MaterialCommunityIcons name="check" size={22} color={Colors.green[500]} />
           ) : (
             <Text style={styles.saveText}>Save</Text>
           )}
@@ -170,7 +139,7 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* User info */}
+        {/* User card */}
         {user && (
           <View style={styles.userCard}>
             <View style={styles.userAvatar}>
@@ -178,7 +147,7 @@ export default function SettingsScreen() {
                 {user.full_name?.charAt(0)?.toUpperCase() ?? 'U'}
               </Text>
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.userName}>{user.full_name}</Text>
               <Text style={styles.userEmail}>{user.email}</Text>
               <Text style={styles.userRole}>{user.role}</Text>
@@ -186,13 +155,13 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Voice section */}
+        {/* ── Voice ───────────────────────────────────────────────────────── */}
         <SectionHeader title="Voice" icon="microphone-outline" />
 
         <View style={styles.card}>
           <SettingRow
             label="Voice Responses"
-            description="AI reads responses aloud using text-to-speech"
+            description="Aria reads responses aloud using AI text-to-speech"
           >
             <Switch
               value={voiceEnabled}
@@ -203,21 +172,30 @@ export default function SettingsScreen() {
           </SettingRow>
         </View>
 
+        {/* Info chips showing what's powering voice */}
+        <View style={styles.infoRow}>
+          <InfoChip icon="waveform" label="AI Voice" value="Kokoro (local)" />
+          <InfoChip icon="microphone" label="Speech-to-text" value="Whisper (local)" />
+        </View>
+
+        {/* Fallback device voices — only shown when voice is enabled */}
         {voiceEnabled && (
-          <View style={[styles.card, { marginTop: Spacing.xs }]}>
+          <View style={[styles.card, { marginTop: Spacing.sm }]}>
             <View style={styles.voiceListHeader}>
-              <Text style={styles.settingLabel}>Voice Selection</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>Fallback Voice</Text>
+                <Text style={styles.settingDescription}>
+                  Used when the AI voice server is unreachable
+                </Text>
+              </View>
               {isLoadingVoices && (
                 <ActivityIndicator size="small" color={Colors.brand[600]} />
               )}
             </View>
-            <Text style={styles.settingDescription}>
-              Female voices available on this device
-            </Text>
 
             {!isLoadingVoices && femaleVoices.length === 0 && (
               <Text style={styles.noVoicesText}>
-                No female voices found. The system default will be used.
+                No device voices found — system default will be used.
               </Text>
             )}
 
@@ -226,8 +204,7 @@ export default function SettingsScreen() {
                 key={voice.identifier}
                 style={[
                   styles.voiceOption,
-                  selectedVoiceId === voice.identifier &&
-                    styles.voiceOptionSelected,
+                  selectedVoiceId === voice.identifier && styles.voiceOptionSelected,
                 ]}
                 onPress={() => handleVoiceSelect(voice.identifier)}
                 activeOpacity={0.8}
@@ -246,8 +223,7 @@ export default function SettingsScreen() {
                     <Text
                       style={[
                         styles.voiceName,
-                        selectedVoiceId === voice.identifier &&
-                          styles.voiceNameSelected,
+                        selectedVoiceId === voice.identifier && styles.voiceNameSelected,
                       ]}
                     >
                       {voice.name}
@@ -267,60 +243,7 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* LLM Provider section */}
-        <SectionHeader title="AI Provider" icon="brain" />
-
-        <View style={styles.card}>
-          <Text style={styles.settingLabel}>Language Model</Text>
-          <Text style={styles.settingDescription}>
-            Select the AI provider for conversation intelligence
-          </Text>
-
-          <View style={styles.providerOptions}>
-            <ProviderOption
-              id="anthropic"
-              label="Anthropic Cloud"
-              description="Claude (requires internet)"
-              icon="cloud-outline"
-              selected={llmProvider === 'anthropic'}
-              onSelect={() => setLlmProvider('anthropic')}
-            />
-            <ProviderOption
-              id="ollama"
-              label="Ollama Local"
-              description="Run models on your server"
-              icon="server-outline"
-              selected={llmProvider === 'ollama'}
-              onSelect={() => setLlmProvider('ollama')}
-            />
-          </View>
-
-          {llmProvider === 'ollama' && (
-            <View style={styles.ollamaUrlContainer}>
-              <Text style={styles.ollamaUrlLabel}>Ollama Server URL</Text>
-              <View style={styles.ollamaUrlInput}>
-                <MaterialCommunityIcons
-                  name="link-variant"
-                  size={16}
-                  color={Colors.gray[400]}
-                  style={{ marginRight: Spacing.xs }}
-                />
-                <TextInput
-                  style={styles.urlInput}
-                  value={ollamaUrl}
-                  onChangeText={setOllamaUrl}
-                  placeholder="http://localhost:11434"
-                  placeholderTextColor={Colors.gray[400]}
-                  keyboardType="url"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Danger zone */}
+        {/* ── Account ─────────────────────────────────────────────────────── */}
         <SectionHeader title="Account" icon="account-outline" />
 
         <View style={styles.card}>
@@ -329,11 +252,7 @@ export default function SettingsScreen() {
             onPress={handleLogout}
             activeOpacity={0.8}
           >
-            <MaterialCommunityIcons
-              name="logout"
-              size={18}
-              color={Colors.red[600]}
-            />
+            <MaterialCommunityIcons name="logout" size={18} color={Colors.red[600]} />
             <Text style={styles.logoutText}>Sign Out</Text>
           </TouchableOpacity>
         </View>
@@ -348,20 +267,10 @@ export default function SettingsScreen() {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function SectionHeader({
-  title,
-  icon,
-}: {
-  title: string;
-  icon: string;
-}) {
+function SectionHeader({ title, icon }: { title: string; icon: string }) {
   return (
     <View style={styles.sectionHeader}>
-      <MaterialCommunityIcons
-        name={icon as any}
-        size={14}
-        color={Colors.text.secondary}
-      />
+      <MaterialCommunityIcons name={icon as any} size={14} color={Colors.text.secondary} />
       <Text style={styles.sectionTitle}>{title.toUpperCase()}</Text>
     </View>
   );
@@ -380,68 +289,30 @@ function SettingRow({
     <View style={styles.settingRow}>
       <View style={styles.settingRowLeft}>
         <Text style={styles.settingLabel}>{label}</Text>
-        {description && (
-          <Text style={styles.settingDescription}>{description}</Text>
-        )}
+        {description && <Text style={styles.settingDescription}>{description}</Text>}
       </View>
       {children}
     </View>
   );
 }
 
-interface ProviderOptionProps {
-  id: string;
-  label: string;
-  description: string;
-  icon: string;
-  selected: boolean;
-  onSelect: () => void;
-}
-
-function ProviderOption({
-  label,
-  description,
+function InfoChip({
   icon,
-  selected,
-  onSelect,
-}: ProviderOptionProps) {
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
   return (
-    <TouchableOpacity
-      style={[styles.providerOption, selected && styles.providerOptionSelected]}
-      onPress={onSelect}
-      activeOpacity={0.8}
-    >
-      <View
-        style={[
-          styles.providerIconCircle,
-          selected && styles.providerIconCircleSelected,
-        ]}
-      >
-        <MaterialCommunityIcons
-          name={icon as any}
-          size={20}
-          color={selected ? Colors.brand[600] : Colors.gray[500]}
-        />
+    <View style={styles.infoChip}>
+      <MaterialCommunityIcons name={icon as any} size={13} color={Colors.brand[600]} />
+      <View>
+        <Text style={styles.infoChipLabel}>{label}</Text>
+        <Text style={styles.infoChipValue}>{value}</Text>
       </View>
-      <View style={styles.providerTextContainer}>
-        <Text
-          style={[
-            styles.providerLabel,
-            selected && styles.providerLabelSelected,
-          ]}
-        >
-          {label}
-        </Text>
-        <Text style={styles.providerDescription}>{description}</Text>
-      </View>
-      {selected && (
-        <MaterialCommunityIcons
-          name="check-circle"
-          size={18}
-          color={Colors.brand[600]}
-        />
-      )}
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -474,12 +345,8 @@ const styles = StyleSheet.create({
     color: Colors.brand[600],
     fontFamily: 'Inter_600SemiBold',
   },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: Spacing.md,
-  },
+  scroll: { flex: 1 },
+  scrollContent: { padding: Spacing.md },
 
   // User card
   userCard: {
@@ -523,7 +390,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Section
+  // Section header
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -554,9 +421,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.md,
   },
-  settingRowLeft: {
-    flex: 1,
-  },
+  settingRowLeft: { flex: 1 },
   settingLabel: {
     fontSize: FontSize.base,
     fontFamily: 'Inter_500Medium',
@@ -568,15 +433,45 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     color: Colors.text.secondary,
     lineHeight: FontSize.xs * 1.5,
-    marginBottom: Spacing.sm,
+  },
+
+  // Info chips row
+  infoRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  infoChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.brand[50],
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.brand[100],
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+  },
+  infoChipLabel: {
+    fontSize: 10,
+    fontFamily: 'Inter_400Regular',
+    color: Colors.text.secondary,
+    lineHeight: 14,
+  },
+  infoChipValue: {
+    fontSize: FontSize.xs,
+    fontFamily: 'Inter_600SemiBold',
+    color: Colors.brand[700],
+    lineHeight: 16,
   },
 
   // Voice list
   voiceListHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 2,
+    marginBottom: Spacing.sm,
   },
   noVoicesText: {
     fontSize: FontSize.sm,
@@ -594,7 +489,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     borderWidth: 1.5,
     borderColor: Colors.border,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.xs,
   },
   voiceOptionSelected: {
     borderColor: Colors.brand[500],
@@ -610,90 +505,10 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     color: Colors.text.primary,
   },
-  voiceNameSelected: {
-    color: Colors.brand[700],
-  },
+  voiceNameSelected: { color: Colors.brand[700] },
   voiceLanguage: {
     fontSize: FontSize.xs,
     color: Colors.text.secondary,
-    fontFamily: 'Inter_400Regular',
-  },
-
-  // Provider options
-  providerOptions: {
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-  },
-  providerOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    gap: Spacing.md,
-  },
-  providerOptionSelected: {
-    borderColor: Colors.brand[500],
-    backgroundColor: Colors.brand[50],
-  },
-  providerIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.gray[100],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  providerIconCircleSelected: {
-    backgroundColor: Colors.brand[100],
-  },
-  providerTextContainer: {
-    flex: 1,
-  },
-  providerLabel: {
-    fontSize: FontSize.base,
-    fontFamily: 'Inter_500Medium',
-    color: Colors.text.primary,
-  },
-  providerLabelSelected: {
-    color: Colors.brand[700],
-    fontFamily: 'Inter_600SemiBold',
-  },
-  providerDescription: {
-    fontSize: FontSize.xs,
-    color: Colors.text.secondary,
-    fontFamily: 'Inter_400Regular',
-    marginTop: 1,
-  },
-
-  // Ollama URL
-  ollamaUrlContainer: {
-    marginTop: Spacing.md,
-    paddingTop: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-  },
-  ollamaUrlLabel: {
-    fontSize: FontSize.sm,
-    fontFamily: 'Inter_500Medium',
-    color: Colors.text.primary,
-    marginBottom: Spacing.xs,
-  },
-  ollamaUrlInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.md,
-    height: 44,
-    backgroundColor: Colors.white,
-  },
-  urlInput: {
-    flex: 1,
-    fontSize: FontSize.sm,
-    color: Colors.text.primary,
     fontFamily: 'Inter_400Regular',
   },
 
