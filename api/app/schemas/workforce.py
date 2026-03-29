@@ -12,6 +12,7 @@ class LocationCreate(BaseModel):
     name: str
     address: Optional[str] = None
     timezone: str = "Australia/Sydney"
+    is_active: bool = True
 
 
 class LocationUpdate(BaseModel):
@@ -298,20 +299,25 @@ class TimesheetEntryOut(BaseModel):
 # ── Leave ────────────────────────────────────────────────────
 
 class LeaveTypeCreate(BaseModel):
-    org_id: uuid.UUID
     name: str
+    code: str
     is_paid: bool = True
     accrual_rate: Optional[Decimal] = None
     requires_approval: bool = True
-    max_balance_days: Optional[Decimal] = None
+    max_balance: Optional[Decimal] = None
+    color: str = "#6366f1"
+    is_active: bool = True
 
 
 class LeaveTypeUpdate(BaseModel):
     name: Optional[str] = None
+    code: Optional[str] = None
     is_paid: Optional[bool] = None
     accrual_rate: Optional[Decimal] = None
     requires_approval: Optional[bool] = None
-    max_balance_days: Optional[Decimal] = None
+    max_balance: Optional[Decimal] = None
+    color: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class LeaveTypeOut(BaseModel):
@@ -320,10 +326,13 @@ class LeaveTypeOut(BaseModel):
     id: uuid.UUID
     org_id: uuid.UUID
     name: str
+    code: str
     is_paid: bool
     accrual_rate: Optional[Decimal]
     requires_approval: bool
-    max_balance_days: Optional[Decimal]
+    max_balance: Optional[Decimal]
+    color: str
+    is_active: bool
 
 
 class LeaveBalanceOut(BaseModel):
@@ -415,6 +424,7 @@ class MessageOut(BaseModel):
 
 class ExportTriggerIn(BaseModel):
     platform: str
+    mode: str = "timesheets"
     agreement_id: Optional[uuid.UUID] = None
     timesheet_ids: Optional[list[uuid.UUID]] = None
     environment: str = "dev"

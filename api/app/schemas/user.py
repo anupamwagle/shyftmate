@@ -20,6 +20,15 @@ class OrganisationUpdate(BaseModel):
     plan: Optional[str] = None
     timezone: Optional[str] = None
     is_active: Optional[bool] = None
+    payroll_frequency: Optional[str] = None
+    pay_week_start: Optional[str] = None
+    overtime_threshold_daily: Optional[float] = None
+    overtime_threshold_weekly: Optional[float] = None
+    rounding_interval: Optional[int] = None
+    require_gps_clock: Optional[bool] = None
+    clock_in_radius_meters: Optional[int] = None
+    email_notifications: Optional[bool] = None
+    sms_notifications: Optional[bool] = None
 
 
 class OrganisationOut(BaseModel):
@@ -31,6 +40,15 @@ class OrganisationOut(BaseModel):
     plan: str
     timezone: str
     is_active: bool
+    payroll_frequency: str
+    pay_week_start: str
+    overtime_threshold_daily: float
+    overtime_threshold_weekly: float
+    rounding_interval: int
+    require_gps_clock: bool
+    clock_in_radius_meters: int
+    email_notifications: bool
+    sms_notifications: bool
     created_at: datetime
     updated_at: datetime
 
@@ -110,3 +128,38 @@ class GoogleAuthIn(BaseModel):
 class AppleAuthIn(BaseModel):
     identity_token: str
     authorization_code: str
+
+
+# ── Org Settings ────────────────────────────────────────────
+
+class OrgSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    slug: str
+    timezone: str
+    plan: str
+    payroll_frequency: str
+    pay_week_start: str
+    overtime_threshold_daily: float
+    overtime_threshold_weekly: float
+    rounding_interval: int
+    email_notifications: bool
+    sms_notifications: bool
+    require_gps_clock: bool
+    clock_in_radius_meters: int
+
+
+class OrgSettingsUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    timezone: Optional[str] = None
+    payroll_frequency: Optional[str] = None
+    pay_week_start: Optional[str] = None
+    overtime_threshold_daily: Optional[float] = None
+    overtime_threshold_weekly: Optional[float] = None
+    rounding_interval: Optional[int] = None
+    email_notifications: Optional[bool] = None
+    sms_notifications: Optional[bool] = None
+    require_gps_clock: Optional[bool] = None
+    clock_in_radius_meters: Optional[int] = None

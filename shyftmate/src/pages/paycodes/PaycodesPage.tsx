@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, Search } from 'lucide-react'
 import { toast } from 'sonner'
+import { type ColumnDef } from '@tanstack/react-table'
 import { api } from '../../lib/api'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -175,49 +176,62 @@ export default function PaycodesPage() {
   const filtered = paycodes.filter(
     (p) =>
       p.paycode.toLowerCase().includes(search.toLowerCase()) ||
-      p.aus_oracle_element.toLowerCase().includes(search.toLowerCase()),
+      (p.aus_oracle_element || '').toLowerCase().includes(search.toLowerCase()),
   )
 
-  const columns = [
-    { key: 'paycode', header: 'Paycode', render: (r: KronosPaycode) => <span className="font-mono text-sm font-medium">{r.paycode}</span> },
-    { key: 'aus_oracle_element', header: 'Oracle Element', render: (r: KronosPaycode) => <span className="font-mono text-sm text-slate-500">{r.aus_oracle_element}</span> },
+  const columns: ColumnDef<KronosPaycode>[] = [
     {
-      key: 'paycode_type',
+      accessorKey: 'paycode',
+      header: 'Paycode',
+      cell: ({ row }) => <span className="font-mono text-sm font-medium">{row.original.paycode}</span>,
+    },
+    {
+      accessorKey: 'aus_oracle_element',
+      header: 'Oracle Element',
+      cell: ({ row }) => <span className="font-mono text-sm text-slate-500">{row.original.aus_oracle_element}</span>,
+    },
+    {
+      accessorKey: 'paycode_type',
       header: 'Type',
-      render: (r: KronosPaycode) => (
+      cell: ({ row }) => (
         <Badge variant="outline" className="capitalize">
-          {r.paycode_type}
+          {row.original.paycode_type}
         </Badge>
       ),
     },
-    { key: 'aus_oracle_leave_reason', header: 'Leave Reason', render: (r: KronosPaycode) => r.aus_oracle_leave_reason || <span className="text-slate-400">—</span> },
     {
-      key: 'export_to_payroll',
+      accessorKey: 'aus_oracle_leave_reason',
+      header: 'Leave Reason',
+      cell: ({ row }) => row.original.aus_oracle_leave_reason || <span className="text-slate-400">&mdash;</span>,
+    },
+    {
+      accessorKey: 'export_to_payroll',
       header: 'Export',
-      render: (r: KronosPaycode) => (
-        <Badge variant={r.export_to_payroll ? 'default' : 'secondary'}>
-          {r.export_to_payroll ? 'Yes' : 'No'}
+      cell: ({ row }) => (
+        <Badge variant={row.original.export_to_payroll ? 'default' : 'secondary'}>
+          {row.original.export_to_payroll ? 'Yes' : 'No'}
         </Badge>
       ),
     },
     {
-      key: 'is_active',
+      accessorKey: 'is_active',
       header: 'Status',
-      render: (r: KronosPaycode) => (
-        <Badge variant={r.is_active ? 'default' : 'secondary'}>
-          {r.is_active ? 'Active' : 'Inactive'}
+      cell: ({ row }) => (
+        <Badge variant={row.original.is_active ? 'default' : 'secondary'}>
+          {row.original.is_active ? 'Active' : 'Inactive'}
         </Badge>
       ),
     },
     {
-      key: 'actions',
+      id: 'actions',
       header: '',
-      render: (r: KronosPaycode) => (
+      enableSorting: false,
+      cell: ({ row }) => (
         <div className="flex gap-1 justify-end">
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => { setEditing(r); setShowForm(true) }}
+            onClick={(e) => { e.stopPropagation(); setEditing(row.original); setShowForm(true) }}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -225,7 +239,7 @@ export default function PaycodesPage() {
             size="sm"
             variant="ghost"
             className="text-red-500 hover:text-red-600"
-            onClick={() => setDeleting(r)}
+            onClick={(e) => { e.stopPropagation(); setDeleting(row.original) }}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
@@ -252,14 +266,14 @@ export default function PaycodesPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
         <Input
-          placeholder="Search paycodes…"
+          placeholder="Search paycodes..."
           className="pl-9"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      <DataTable columns={columns} data={filtered} loading={isLoading} />
+      <DataTable columns={columns} data={filtered} isLoading={isLoading} />
 
       <Dialog
         open={showForm}
@@ -279,12 +293,12 @@ export default function PaycodesPage() {
 
       <ConfirmDialog
         open={!!deleting}
+        onOpenChange={(open) => { if (!open) setDeleting(null) }}
         title="Delete Paycode"
         description={`Delete "${deleting?.paycode}"? This may affect existing rule lines referencing it.`}
         onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
-        onCancel={() => setDeleting(null)}
-        loading={deleteMutation.isPending}
-        destructive
+        variant="destructive"
+        isLoading={deleteMutation.isPending}
       />
     </div>
   )

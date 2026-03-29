@@ -2,6 +2,7 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { AppLayout } from './components/layout/AppLayout'
+import { RouteErrorBoundary } from './components/ErrorBoundary'
 
 // Auth
 import LoginPage from './pages/auth/LoginPage'
@@ -61,22 +62,23 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Public routes */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/otp" element={<OTPPage />} />
+      <RouteErrorBoundary>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/otp" element={<OTPPage />} />
 
-        {/* Protected routes */}
-        <Route
-          path="/"
-          element={
-            <RequireAuth>
-              <AppLayout />
-            </RequireAuth>
-          }
-        >
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          {/* Protected routes */}
+          <Route
+            path="/"
+            element={
+              <RequireAuth>
+                <AppLayout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<DashboardPage />} />
 
           {/* Schedule */}
           <Route path="schedule" element={<SchedulePage />} />
@@ -124,7 +126,11 @@ export default function App() {
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
+
+        {/* Top-level catch-all for any unmatched routes outside the layout */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
+      </RouteErrorBoundary>
     </BrowserRouter>
   )
 }

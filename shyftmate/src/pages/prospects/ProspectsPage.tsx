@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { type ColumnDef } from '@tanstack/react-table'
 import { format } from 'date-fns'
 import {
   Phone,
@@ -170,11 +171,11 @@ function ProspectDetail({
 
       <ConfirmDialog
         open={provisioning}
+        onOpenChange={(open) => { if (!open) setProvisioning(false) }}
         title="Provision Account"
         description={`This will create an organisation for "${prospect.company_name || prospect.caller_name}" and send an invite email to ${prospect.company_email || '(no email on file)'}. Continue?`}
         onConfirm={() => provisionMutation.mutate()}
-        onCancel={() => setProvisioning(false)}
-        loading={provisionMutation.isPending}
+        isLoading={provisionMutation.isPending}
       />
     </>
   )
@@ -190,67 +191,67 @@ export default function ProspectsPage() {
       api.get('/telephony/prospects', { params: { status: statusFilter || undefined } }).then((r) => r.data),
   })
 
-  const columns = [
+  const columns: ColumnDef<Prospect>[] = [
     {
-      key: 'caller',
+      id: 'caller',
       header: 'Caller',
-      render: (r: Prospect) => (
+      cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Phone className="h-4 w-4 text-slate-400 shrink-0" />
           <div>
-            <p className="font-medium text-sm">{r.caller_name || r.caller_phone}</p>
-            {r.caller_name && (
-              <p className="text-xs text-slate-400">{r.caller_phone}</p>
+            <p className="font-medium text-sm">{row.original.caller_name || row.original.caller_phone}</p>
+            {row.original.caller_name && (
+              <p className="text-xs text-slate-400">{row.original.caller_phone}</p>
             )}
           </div>
         </div>
       ),
     },
     {
-      key: 'company',
+      id: 'company',
       header: 'Company',
-      render: (r: Prospect) => (
+      cell: ({ row }) => (
         <div>
-          <p className="font-medium text-sm">{r.company_name || '—'}</p>
-          {r.company_email && (
-            <p className="text-xs text-slate-400">{r.company_email}</p>
+          <p className="font-medium text-sm">{row.original.company_name || '—'}</p>
+          {row.original.company_email && (
+            <p className="text-xs text-slate-400">{row.original.company_email}</p>
           )}
         </div>
       ),
     },
     {
-      key: 'status',
+      accessorKey: 'status',
       header: 'Status',
-      render: (r: Prospect) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[r.status]}`}>
-          {r.status}
+      cell: ({ row }) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[row.original.status]}`}>
+          {row.original.status}
         </span>
       ),
     },
     {
-      key: 'agreement',
+      id: 'agreement',
       header: 'Agreement',
-      render: (r: Prospect) =>
-        r.agreement_id ? (
+      cell: ({ row }) =>
+        row.original.agreement_id ? (
           <Badge variant="outline" className="text-xs">Draft saved</Badge>
         ) : (
           <span className="text-xs text-slate-400">No draft</span>
         ),
     },
     {
-      key: 'created_at',
+      accessorKey: 'created_at',
       header: 'Received',
-      render: (r: Prospect) => (
+      cell: ({ row }) => (
         <span className="text-sm text-slate-500">
-          {format(new Date(r.created_at), 'dd MMM yy HH:mm')}
+          {format(new Date(row.original.created_at), 'dd MMM yy HH:mm')}
         </span>
       ),
     },
     {
-      key: 'actions',
+      id: 'actions',
       header: '',
-      render: (r: Prospect) => (
-        <Button size="sm" variant="ghost" onClick={() => setSelected(r)}>
+      cell: ({ row }) => (
+        <Button size="sm" variant="ghost" onClick={() => setSelected(row.original)}>
           Review <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
         </Button>
       ),
@@ -277,7 +278,7 @@ export default function ProspectsPage() {
         </TabsList>
       </Tabs>
 
-      <DataTable columns={columns} data={prospects} loading={isLoading} />
+      <DataTable columns={columns} data={prospects} isLoading={isLoading} />
 
       <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="max-w-lg space-y-4">

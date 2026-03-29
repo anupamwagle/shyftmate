@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { type ColumnDef } from '@tanstack/react-table'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
@@ -181,49 +182,49 @@ export default function LeaveTypesPage() {
     onError: () => toast.error('Failed to delete'),
   })
 
-  const columns = [
+  const columns: ColumnDef<LeaveType>[] = [
     {
-      key: 'color',
+      id: 'color',
       header: '',
-      render: (r: LeaveType) => (
-        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: r.color }} />
+      cell: ({ row }) => (
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: row.original.color }} />
       ),
     },
-    { key: 'name', header: 'Name', render: (r: LeaveType) => <span className="font-medium">{r.name}</span> },
-    { key: 'code', header: 'Code', render: (r: LeaveType) => <span className="font-mono text-sm">{r.code}</span> },
+    { accessorKey: 'name', header: 'Name', cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
+    { accessorKey: 'code', header: 'Code', cell: ({ row }) => <span className="font-mono text-sm">{row.original.code}</span> },
     {
-      key: 'is_paid',
+      accessorKey: 'is_paid',
       header: 'Paid',
-      render: (r: LeaveType) => (
-        <Badge variant={r.is_paid ? 'default' : 'secondary'}>{r.is_paid ? 'Yes' : 'No'}</Badge>
+      cell: ({ row }) => (
+        <Badge variant={row.original.is_paid ? 'default' : 'secondary'}>{row.original.is_paid ? 'Yes' : 'No'}</Badge>
       ),
     },
     {
-      key: 'accrual_rate',
+      accessorKey: 'accrual_rate',
       header: 'Accrual (hrs/wk)',
-      render: (r: LeaveType) => r.accrual_rate != null ? r.accrual_rate.toFixed(2) : <span className="text-slate-400">—</span>,
+      cell: ({ row }) => row.original.accrual_rate != null ? Number(row.original.accrual_rate).toFixed(2) : <span className="text-slate-400">—</span>,
     },
     {
-      key: 'max_balance',
+      accessorKey: 'max_balance',
       header: 'Max Balance',
-      render: (r: LeaveType) => r.max_balance != null ? `${r.max_balance} hrs` : <span className="text-slate-400">Unlimited</span>,
+      cell: ({ row }) => row.original.max_balance != null ? `${row.original.max_balance} hrs` : <span className="text-slate-400">Unlimited</span>,
     },
     {
-      key: 'is_active',
+      accessorKey: 'is_active',
       header: 'Status',
-      render: (r: LeaveType) => (
-        <Badge variant={r.is_active ? 'default' : 'secondary'}>{r.is_active ? 'Active' : 'Inactive'}</Badge>
+      cell: ({ row }) => (
+        <Badge variant={row.original.is_active ? 'default' : 'secondary'}>{row.original.is_active ? 'Active' : 'Inactive'}</Badge>
       ),
     },
     {
-      key: 'actions',
+      id: 'actions',
       header: '',
-      render: (r: LeaveType) => (
+      cell: ({ row }) => (
         <div className="flex gap-1 justify-end">
-          <Button size="sm" variant="ghost" onClick={() => { setEditing(r); setShowForm(true) }}>
+          <Button size="sm" variant="ghost" onClick={() => { setEditing(row.original); setShowForm(true) }}>
             <Pencil className="h-3.5 w-3.5" />
           </Button>
-          <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => setDeleting(r)}>
+          <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => setDeleting(row.original)}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -244,7 +245,7 @@ export default function LeaveTypesPage() {
         </Button>
       </div>
 
-      <DataTable columns={columns} data={leaveTypes} loading={isLoading} />
+      <DataTable columns={columns} data={leaveTypes} isLoading={isLoading} />
 
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) { setShowForm(false); setEditing(null) } }}>
         <DialogContent className="max-w-lg">
@@ -262,12 +263,12 @@ export default function LeaveTypesPage() {
 
       <ConfirmDialog
         open={!!deleting}
+        onOpenChange={(open) => { if (!open) setDeleting(null) }}
         title="Delete Leave Type"
         description={`Delete "${deleting?.name}"? Employees with active balances for this type will be affected.`}
         onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
-        onCancel={() => setDeleting(null)}
-        loading={deleteMutation.isPending}
-        destructive
+        isLoading={deleteMutation.isPending}
+        variant="destructive"
       />
     </div>
   )

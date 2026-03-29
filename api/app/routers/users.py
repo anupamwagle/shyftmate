@@ -14,6 +14,8 @@ from app.schemas.user import (
     OrganisationCreate,
     OrganisationOut,
     OrganisationUpdate,
+    OrgSettingsOut,
+    OrgSettingsUpdate,
     UserCreate,
     UserOut,
     UserUpdate,
@@ -114,6 +116,59 @@ async def delete_org(
     org.is_active = False
     await log_action(db, "organisation", org.id, "deleted", current_user.id,
                      ip_address=request.client.host if request.client else None)
+
+
+# ── Org Settings (current user's org) ─────────────────────────
+
+@router.get("/orgs/me/settings", response_model=OrgSettingsOut, summary="Get org settings")
+async def get_org_settings(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.org_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "NO_ORG", "message": "User is not assigned to an organisation.", "detail": None},
+        )
+    org = await db.get(Organisation, current_user.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ORG_NOT_FOUND", "message": "Organisation not found.", "detail": None})
+    return org
+
+
+@router.patch("/orgs/me/settings", response_model=OrgSettingsOut, summary="Update org settings")
+async def update_org_settings(
+    body: OrgSettingsUpdate,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.org_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "NO_ORG", "message": "User is not assigned to an organisation.", "detail": None},
+        )
+    org = await db.get(Organisation, current_user.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ORG_NOT_FOUND", "message": "Organisation not found.", "detail": None})
+
+    # Check for slug uniqueness if changing slug
+    updates = body.model_dump(exclude_unset=True)
+    if "slug" in updates and updates["slug"] != org.slug:
+        existing = await db.execute(select(Organisation).where(Organisation.slug == updates["slug"]))
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail={"error_code": "ORG_SLUG_EXISTS", "message": "Slug already in use.", "detail": None},
+            )
+
+    before = OrgSettingsOut.model_validate(org).model_dump()
+    for field, value in updates.items():
+        setattr(org, field, value)
+    await log_action(db, "organisation", org.id, "settings_updated", current_user.id,
+                     before=before, after=updates,
+                     ip_address=request.client.host if request.client else None)
+    return org
 
 
 # ── Admin User Management ─────────────────────────────────────

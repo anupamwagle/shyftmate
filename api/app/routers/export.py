@@ -30,27 +30,31 @@ async def list_platforms(
             "name": "UKG Pro WFM (Kronos)",
             "connected": bool(settings.KRONOS_BASE_URL and settings.KRONOS_CLIENT_ID),
             "description": "Export work rules and timesheets to Kronos/UKG Pro.",
+            "modes": ["timesheets", "rules"],
         },
         {
             "id": "keypay",
             "name": "KeyPay / Employment Hero",
             "connected": False,
             "description": "Export pay categories and timesheets to KeyPay.",
+            "modes": ["timesheets", "pay_categories"],
         },
         {
             "id": "myob",
             "name": "MYOB Payroll",
             "connected": False,
             "description": "Generate MYOB-compatible CSV exports.",
+            "modes": ["timesheets"],
         },
         {
             "id": "xero",
             "name": "Xero Payroll",
             "connected": False,
             "description": "Generate Xero Payroll CSV exports.",
+            "modes": ["timesheets"],
         },
     ]
-    return {"platforms": platforms}
+    return platforms
 
 
 @router.post("/trigger", summary="Trigger payroll export job", status_code=status.HTTP_201_CREATED)
@@ -197,7 +201,7 @@ async def _run_export_job(
             elif timesheet_ids:
                 result = await adapter.export_timesheets([str(tid) for tid in timesheet_ids], db)
 
-        job.status = "done" if (result is None or result.success) else "failed"
+        job.status = "success" if (result is None or result.success) else "failed"
         job.result_payload = result.payload if result else {"message": "No export performed"}
         job.completed_at = datetime.now(timezone.utc)
 

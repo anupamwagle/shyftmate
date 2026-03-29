@@ -7,7 +7,8 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  ChevronDown,
+  Plug,
+  PlugZap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api'
@@ -27,7 +28,7 @@ interface Platform {
   id: string
   name: string
   description: string
-  logo: string
+  connected: boolean
   modes: string[]
 }
 
@@ -102,9 +103,19 @@ export default function ExportPage() {
                 : 'border-slate-200 hover:border-slate-300 bg-white'
             }`}
           >
-            <div className="text-3xl mb-2">{PLATFORM_LOGOS[p.id] ?? '🔗'}</div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-3xl">{PLATFORM_LOGOS[p.id] ?? '🔗'}</span>
+              {p.connected ? (
+                <PlugZap className="h-4 w-4 text-green-500" />
+              ) : (
+                <Plug className="h-4 w-4 text-slate-300" />
+              )}
+            </div>
             <p className="font-semibold text-sm">{p.name}</p>
             <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{p.description}</p>
+            <Badge variant={p.connected ? 'default' : 'secondary'} className="mt-2 text-[10px]">
+              {p.connected ? 'Connected' : 'Not connected'}
+            </Badge>
           </button>
         ))}
         {/* Static fallback cards when API hasn't loaded yet */}

@@ -48,6 +48,9 @@ from app.schemas.workforce import (
     LeaveTypeCreate,
     LeaveTypeOut,
     LeaveTypeUpdate,
+    LocationCreate,
+    LocationOut,
+    LocationUpdate,
     MessageCreate,
     MessageOut,
     RosterCreate,
@@ -194,6 +197,90 @@ async def approve_timesheet(
     return ts
 
 
+# ── Locations (Admin) ────────────────────────────────────────
+
+@router.get("/admin/locations", response_model=list[LocationOut], summary="List locations")
+async def list_locations(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = current_user.org_id
+    query = select(Location)
+    if org_id:
+        query = query.where(Location.org_id == org_id)
+    query = query.order_by(Location.name)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post("/admin/locations", response_model=LocationOut, status_code=201, summary="Create location")
+async def create_location(
+    body: LocationCreate,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.org_id:
+        raise HTTPException(status_code=400, detail={"error_code": "NO_ORG", "message": "User has no organisation.", "detail": None})
+    loc = Location(org_id=current_user.org_id, **body.model_dump())
+    db.add(loc)
+    await db.flush()
+    await db.refresh(loc)
+    db.add(AuditLog(
+        entity_type="location", entity_id=loc.id,
+        action="create", actor=current_user.id,
+        after_payload={"name": loc.name}, ip_address=_ip(request),
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    return loc
+
+
+@router.patch("/admin/locations/{loc_id}", response_model=LocationOut, summary="Update location")
+async def update_location(
+    loc_id: uuid.UUID,
+    body: LocationUpdate,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    loc = await db.get(Location, loc_id)
+    if loc is None:
+        raise HTTPException(status_code=404, detail={"error_code": "LOCATION_NOT_FOUND", "message": "Location not found.", "detail": None})
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(loc, field, value)
+    db.add(AuditLog(
+        entity_type="location", entity_id=loc.id,
+        action="update", actor=current_user.id,
+        after_payload=changes, ip_address=_ip(request),
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    await db.refresh(loc)
+    return loc
+
+
+@router.delete("/admin/locations/{loc_id}", status_code=204, summary="Delete location")
+async def delete_location(
+    loc_id: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    loc = await db.get(Location, loc_id)
+    if loc is None:
+        raise HTTPException(status_code=404, detail={"error_code": "LOCATION_NOT_FOUND", "message": "Location not found.", "detail": None})
+    db.add(AuditLog(
+        entity_type="location", entity_id=loc.id,
+        action="delete", actor=current_user.id,
+        before_payload={"name": loc.name}, ip_address=_ip(request),
+        created_at=datetime.now(timezone.utc),
+    ))
+    await db.delete(loc)
+    await db.commit()
+
+
 # ── Leave Types ──────────────────────────────────────────────
 
 @router.get("/leave-types", response_model=list[LeaveTypeOut], summary="List leave types")
@@ -216,9 +303,12 @@ async def create_leave_type(
     current_user: User = Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    lt = LeaveType(**body.model_dump())
+    if not current_user.org_id:
+        raise HTTPException(status_code=400, detail={"error_code": "NO_ORG", "message": "User has no organisation.", "detail": None})
+    lt = LeaveType(org_id=current_user.org_id, **body.model_dump())
     db.add(lt)
     await db.flush()
+    await db.refresh(lt)
     return lt
 
 
@@ -235,6 +325,19 @@ async def update_leave_type(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(lt, field, value)
     return lt
+
+
+@router.delete("/leave-types/{lt_id}", status_code=204, summary="Delete leave type")
+async def delete_leave_type(
+    lt_id: uuid.UUID,
+    current_user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    lt = await db.get(LeaveType, lt_id)
+    if lt is None:
+        raise HTTPException(status_code=404, detail={"error_code": "LEAVE_TYPE_NOT_FOUND", "message": "Leave type not found.", "detail": None})
+    await db.delete(lt)
+    return None
 
 
 # ── Leave Balances ───────────────────────────────────────────

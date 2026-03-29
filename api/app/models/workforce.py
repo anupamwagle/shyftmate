@@ -176,10 +176,13 @@ class LeaveType(Base, UUIDPrimaryKey):
 
     org_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organisations.id"))
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, server_default="")
     is_paid: Mapped[bool] = mapped_column(Boolean, default=True)
     accrual_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4), nullable=True)
     requires_approval: Mapped[bool] = mapped_column(Boolean, default=True)
-    max_balance_days: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2), nullable=True)
+    max_balance: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2), nullable=True)
+    color: Mapped[str] = mapped_column(String(20), nullable=False, server_default="'#6366f1'")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
 class LeaveBalance(Base, UUIDPrimaryKey):

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -19,6 +19,21 @@ class Organisation(Base, UUIDPrimaryKey, TimestampMixin):
     plan: Mapped[str] = mapped_column(String(50), default="free")
     timezone: Mapped[str] = mapped_column(String(50), default="Australia/Sydney")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Payroll settings
+    payroll_frequency: Mapped[str] = mapped_column(String(20), default="weekly")
+    pay_week_start: Mapped[str] = mapped_column(String(10), default="Monday")
+    overtime_threshold_daily: Mapped[float] = mapped_column(Float, default=7.6)
+    overtime_threshold_weekly: Mapped[float] = mapped_column(Float, default=38.0)
+
+    # Attendance settings
+    rounding_interval: Mapped[int] = mapped_column(Integer, default=15)
+    require_gps_clock: Mapped[bool] = mapped_column(Boolean, default=False)
+    clock_in_radius_meters: Mapped[int] = mapped_column(Integer, default=200)
+
+    # Notification settings
+    email_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
+    sms_notifications: Mapped[bool] = mapped_column(Boolean, default=False)
 
     users: Mapped[list["User"]] = relationship("User", back_populates="organisation")
     locations: Mapped[list["Location"]] = relationship("Location", back_populates="organisation")
